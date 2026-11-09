@@ -20,10 +20,35 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Admin\WithdrawalController;
 use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\StoreInfluencerController;
+use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\Api\Influencer\ProductController as InfluencerProductController;
+use App\Http\Controllers\Api\Influencer\LinkController as InfluencerLinkController;
+use App\Http\Controllers\Api\Influencer\SalesController as InfluencerSalesApiController;
+use App\Http\Controllers\Admin\CustomerController;
+use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\ShippingController;
+use App\Http\Controllers\Admin\PromotionalLinkController;
+
+use App\Http\Controllers\Admin\InfluencerSalesController;
+use App\Http\Controllers\Admin\BannerController;
+use App\Http\Controllers\Admin\CouponController;
 
 // ========================
 // Social Login
 // ========================
+Route::get('home', [HomeController::class, 'index']);
+
+Route::get('products', [ApiProductController::class, 'index']);
+Route::get('products/featured', [ApiProductController::class, 'featured']);
+Route::get('products/offers', [HomeController::class, 'offers']);
+Route::get('products/new', [HomeController::class, 'newArrivals']);
+Route::get('products/{id}', [ApiProductController::class, 'show']);
+
+Route::get('influencers', [StoreInfluencerController::class, 'index']);
+Route::get('influencers/{id}/products', [StoreInfluencerController::class, 'products']);
+
 Route::prefix('auth')->group(function () {
     Route::get('{provider}/redirect', [SocialAuthController::class, 'redirect']);
     Route::get('{provider}/callback', [SocialAuthController::class, 'callback']);
@@ -57,7 +82,10 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('me', [AuthController::class, 'me']);
         Route::post('logout', [AuthController::class, 'logout']);
     });
-
+ Route::prefix('checkout')->group(function () {
+        Route::post('quote', [CheckoutController::class, 'quote']);
+        Route::post('/', [CheckoutController::class, 'store']);
+    });
     Route::prefix('cart')->group(function () {
         Route::get('/', [CartController::class, 'index']);
         Route::post('/', [CartController::class, 'store']);
@@ -83,6 +111,10 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
 
     // ===== Influencer =====
     Route::prefix('influencer')->middleware('influencer')->group(function () {
+                Route::get('products', [InfluencerProductController::class, 'index']);
+        Route::get('percentage', [InfluencerProductController::class, 'percentage']);
+        Route::get('links', [InfluencerLinkController::class, 'index']);
+        Route::get('sales', [InfluencerSalesApiController::class, 'index']);
         Route::get('dashboard', [InfluencerDashboardController::class, 'index']);
         Route::get('wallet', [InfluencerWalletController::class, 'show']);
         Route::post('wallet/withdraw', [InfluencerWalletController::class, 'requestWithdrawal']);
@@ -148,5 +180,49 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::match(['put', 'patch'], 'employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:employees.edit');
         Route::patch('employees/{employee}/toggle-status', [EmployeeController::class, 'toggleStatus'])->middleware('permission:employees.edit');
         Route::delete('employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:employees.delete');
+
+                // Customers
+        Route::get('customers', [CustomerController::class, 'index'])->middleware('permission:customers.view,customers.manage');
+        Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:customers.view,customers.manage');
+        Route::patch('customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])->middleware('permission:customers.manage');
+
+        // Payments
+        Route::get('payments', [PaymentController::class, 'index'])->middleware('permission:payments.view,payments.manage');
+        Route::get('payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:payments.view,payments.manage');
+        Route::patch('payments/{payment}/status', [PaymentController::class, 'updateStatus'])->middleware('permission:payments.manage');
+
+        // Shipping
+        Route::get('shipping', [ShippingController::class, 'index'])->middleware('permission:shipping.view,shipping.manage');
+        Route::get('shipping/{shipping}', [ShippingController::class, 'show'])->middleware('permission:shipping.view,shipping.manage');
+        Route::post('orders/{order}/shipping', [ShippingController::class, 'store'])->middleware('permission:shipping.manage');
+        Route::match(['put', 'patch'], 'shipping/{shipping}', [ShippingController::class, 'update'])->middleware('permission:shipping.manage');
+        Route::patch('shipping/{shipping}/status', [ShippingController::class, 'updateStatus'])->middleware('permission:shipping.manage');
+
+        // Promotional Links
+        Route::get('links', [PromotionalLinkController::class, 'index'])->middleware('permission:influencers.links');
+        Route::get('links/{link}', [PromotionalLinkController::class, 'show'])->middleware('permission:influencers.links');
+        Route::match(['put', 'patch'], 'links/{link}', [PromotionalLinkController::class, 'update'])->middleware('permission:influencers.links');
+        Route::patch('links/{link}/toggle', [PromotionalLinkController::class, 'toggle'])->middleware('permission:influencers.links');
+
+        // Influencer Wallets & Sales
+        Route::get('wallets', [InfluencerWalletController::class, 'index'])->middleware('permission:influencers.wallets');
+        Route::get('wallets/{wallet}', [InfluencerWalletController::class, 'show'])->middleware('permission:influencers.wallets');
+        Route::get('wallet-transactions', [InfluencerWalletController::class, 'transactions'])->middleware('permission:influencers.wallets');
+        Route::get('influencer-sales', [InfluencerSalesController::class, 'index'])->middleware('permission:influencers.view,influencers.commissions');
+        Route::get('influencers/{influencer}/sales', [InfluencerSalesController::class, 'forInfluencer'])->middleware('permission:influencers.view,influencers.commissions');
+
+        // Banners
+        Route::get('banners', [BannerController::class, 'index'])->middleware('permission:banners.view');
+        Route::get('banners/{banner}', [BannerController::class, 'show'])->middleware('permission:banners.view');
+        Route::post('banners', [BannerController::class, 'store'])->middleware('permission:banners.create');
+        Route::match(['put', 'patch'], 'banners/{banner}', [BannerController::class, 'update'])->middleware('permission:banners.edit');
+        Route::delete('banners/{banner}', [BannerController::class, 'destroy'])->middleware('permission:banners.delete');
+
+        // Coupons
+        Route::get('coupons', [CouponController::class, 'index'])->middleware('permission:coupons.view');
+        Route::get('coupons/{coupon}', [CouponController::class, 'show'])->middleware('permission:coupons.view');
+        Route::post('coupons', [CouponController::class, 'store'])->middleware('permission:coupons.create');
+        Route::match(['put', 'patch'], 'coupons/{coupon}', [CouponController::class, 'update'])->middleware('permission:coupons.edit');
+        Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->middleware('permission:coupons.delete');
     });
 });
