@@ -12,7 +12,7 @@ class CategoryController extends Controller
     public function index(Request $request)
     {
         $categories = Category::active()
-            ->with('children')
+            ->with(['children' => fn($q) => $q->active()])
             ->when($request->parent_id, fn($q) => $q->where('parent_id', $request->parent_id))
             ->when($request->search, fn($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->orderBy('sort_order')

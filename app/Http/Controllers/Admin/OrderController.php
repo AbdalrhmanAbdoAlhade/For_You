@@ -13,14 +13,16 @@ class OrderController extends Controller
         protected OrderService $orderService
     ) {}
 
-    public function index(Request $request)
+        public function index(Request $request)
     {
         $orders = Order::with(['customer', 'influencer', 'payment', 'shipping'])
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->search, function ($q) use ($request) {
-                $q->where('order_number', 'like', "%{$request->search}%")
-                  ->orWhere('customer_name', 'like', "%{$request->search}%")
-                  ->orWhere('customer_phone', 'like', "%{$request->search}%");
+                $q->where(function ($q) use ($request) {
+                    $q->where('order_number', 'like', "%{$request->search}%")
+                      ->orWhere('customer_name', 'like', "%{$request->search}%")
+                      ->orWhere('customer_phone', 'like', "%{$request->search}%");
+                });
             })
             ->latest()
             ->paginate(20);

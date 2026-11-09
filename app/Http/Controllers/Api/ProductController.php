@@ -9,14 +9,17 @@ use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
-    public function index(Request $request)
+       public function index(Request $request)
     {
         $products = Product::active()
             ->with('category')
             ->when($request->category_id, fn($q) => $q->where('category_id', $request->category_id))
             ->when($request->search, function ($q) use ($request) {
-                $q->where('name', 'like', "%{$request->search}%")
-                  ->orWhere('description', 'like', "%{$request->search}%");
+                // لازم نجمّع الـ orWhere جوه where واحدة، وإلا بتكسر باقي الفلاتر (is_active والقسم)
+                $q->where(function ($q) use ($request) {
+                    $q->where('name', 'like', "%{$request->search}%")
+                      ->orWhere('description', 'like', "%{$request->search}%");
+                });
             })
             ->when($request->featured, fn($q) => $q->featured())
             ->when($request->min_price, fn($q) => $q->where('price', '>=', $request->min_price))
@@ -34,7 +37,6 @@ class ProductController extends Controller
 
         return ProductResource::collection($products);
     }
-
     public function show($id)
     {
         $product = Product::active()
