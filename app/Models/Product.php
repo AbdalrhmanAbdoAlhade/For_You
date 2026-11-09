@@ -71,4 +71,13 @@ class Product extends Model
     {
         return $query->where('is_featured', true);
     }
+        public function scopeOnSale($query)
+    {
+        return $query->whereNotNull('discount_price')->whereColumn('discount_price', '<', 'price');
+    }
+
+    public function scopeInStock($query)
+    {
+        return $query->where('stock', '>', 0);
+    }
 }

@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Product;
+use App\Models\PromotionalLink;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,80 +20,69 @@ class OrderService
 
     public function __construct(
         protected InfluencerCommissionService $commissionService,
-        protected PromotionalLinkService $linkService
+        protected PromotionalLinkService $linkService,
+        protected PricingService $pricingService
     ) {}
+
+    /**
+     * عرض الأسعار قبل التنفيذ (مفيش حاجة بتتحفظ ولا مخزون بيتخصم).
+     */
+    public function quote(User $customer, array $data): array
+    {
+        [$lines, $subtotal] = $this->buildLines($data['items'], false);
+
+        $pricing = $this->pricingService->calculate(
+            $subtotal,
+            $data['coupon_code'] ?? null,
+            $data['city'] ?? null,
+            $customer
+        );
+
+        return [
+            'items' => array_map(fn ($l) => [
+                'product_id' => $l['product']->id,
+                'name'       => $l['product']->name,
+                'quantity'   => $l['qty'],
+                'unit_price' => $l['unitPrice'],
+                'line_total' => $l['lineTotal'],
+            ], $lines),
+            'subtotal'      => $pricing['subtotal'],
+            'discount'      => $pricing['discount'],
+            'shipping_cost' => $pricing['shipping_cost'],
+            'total'         => $pricing['total'],
+            'coupon_code'   => $pricing['coupon']?->code,
+        ];
+    }
 
     public function createOrder(User $customer, array $data): Order
     {
-        // دمج المنتجات المكررة في الطلب
-        $quantities = [];
-        foreach ($data['items'] as $item) {
-            $id = (int) $item['product_id'];
-            $quantities[$id] = ($quantities[$id] ?? 0) + (int) $item['quantity'];
-        }
-        ksort($quantities); // ترتيب ثابت للـ lock لتفادي deadlock
+        return DB::transaction(function () use ($customer, $data) {
 
-        return DB::transaction(function () use ($customer, $data, $quantities) {
+            [$lines, $subtotal] = $this->buildLines($data['items'], true);
 
-            // lock على المنتجات لحد ما الـ transaction تخلص
-            $products = Product::whereIn('id', array_keys($quantities))
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
+            $pricing = $this->pricingService->calculate(
+                $subtotal,
+                $data['coupon_code'] ?? null,
+                $data['city'] ?? null,
+                $customer,
+                true
+            );
 
-            $subtotal = 0;
-            $lines = [];
-
-            foreach ($quantities as $productId => $qty) {
-                $product = $products->get($productId);
-
-                if (!$product || !$product->is_active) {
-                    throw new \DomainException("المنتج رقم {$productId} غير متاح");
-                }
-
-                if ($product->stock < $qty) {
-                    throw new \DomainException(
-                        "الكمية المطلوبة من \"{$product->name}\" غير متوفرة (المتاح: {$product->stock})"
-                    );
-                }
-
-                $unitPrice = $product->discount_price ?? $product->price;
-                $lineTotal = round($unitPrice * $qty, 2);
-                $subtotal += $lineTotal;
-
-                $lines[] = compact('product', 'qty', 'lineTotal');
-            }
-
-            // الرابط الترويجي
-            $link = null;
-            if (!empty($data['ref'])) {
-                $link = $this->linkService->findActive($data['ref']);
-
-                if ($link) {
-                    $influencer = $link->influencer;
-                    $valid = $influencer
-                        && $influencer->type === 'influencer'
-                        && $influencer->is_active
-                        && $influencer->id !== $customer->id; // المؤثر ميكسبش من مشترياته
-
-                    if (!$valid) {
-                        $link = null;
-                    }
-                }
-            }
-
-            $subtotal = round($subtotal, 2);
+            $coupon = $pricing['coupon'];
+            $link   = $this->resolveLink($data['ref'] ?? null, $customer);
 
             $order = Order::create([
                 'order_number'        => $this->generateOrderNumber(),
                 'customer_id'         => $customer->id,
                 'influencer_id'       => $link?->influencer_id,
                 'promotional_link_id' => $link?->id,
+                'coupon_id'           => $coupon?->id,
+                'coupon_code'         => $coupon?->code,
                 'status'              => 'new',
-                'subtotal'            => $subtotal,
-                'discount'            => 0,
-                'shipping_cost'       => 0,
-                'total'               => $subtotal,
+                'subtotal'            => $pricing['subtotal'],
+                'discount'            => $pricing['discount'],
+                'shipping_cost'       => $pricing['shipping_cost'],
+                'total'               => $pricing['total'],
                 'customer_name'       => $data['customer_name'],
                 'customer_phone'      => $data['customer_phone'],
                 'customer_email'      => $data['customer_email'] ?? null,
@@ -117,12 +108,33 @@ class OrderService
                 $product->decrement('stock', $line['qty']);
             }
 
-            if ($link) {
-                $link->increment('conversions');
-            }
+            $link?->increment('conversions');
+            $coupon?->increment('used_count');
 
-            return $order->load('items');
+            // سجل الدفع (pending لحد ما الأدمن أو البوابة تأكده)
+            Payment::create([
+                'order_id'       => $order->id,
+                'payment_method' => $data['payment_method'] ?? config('store.default_payment_method'),
+                'amount'         => $pricing['total'],
+                'status'         => 'pending',
+            ]);
+
+            return $order->load(['items', 'payment']);
         });
+    }
+
+    public function canTransition(string $from, string $to): bool
+    {
+        if ($from === $to) {
+            return false;
+        }
+
+        try {
+            $this->assertTransitionAllowed($from, $to);
+            return true;
+        } catch (\DomainException) {
+            return false;
+        }
     }
 
     /**
@@ -135,7 +147,6 @@ class OrderService
 
         $order = DB::transaction(function () use ($order, $status, &$changed, &$commissions) {
 
-            // lock على الطلب عشان طلبين متزامنين ميعملوش نفس الانتقال مرتين
             $order = Order::with('items')->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
             if ($order->status === $status) {
@@ -159,7 +170,6 @@ class OrderService
             return $order;
         });
 
-        // الإشعارات بعد نجاح الـ transaction
         if ($changed) {
             $order->customer->notify(new OrderStatusUpdated($order));
 
@@ -174,6 +184,73 @@ class OrderService
         return $order;
     }
 
+    // ========================= helpers =========================
+
+    /**
+     * @return array{0: array, 1: float} [الأسطر, المجموع الفرعي]
+     */
+    protected function buildLines(array $items, bool $lock): array
+    {
+        $quantities = [];
+        foreach ($items as $item) {
+            $id = (int) $item['product_id'];
+            $quantities[$id] = ($quantities[$id] ?? 0) + (int) $item['quantity'];
+        }
+        ksort($quantities); // ترتيب ثابت للـ lock لتفادي deadlock
+
+        $query = Product::whereIn('id', array_keys($quantities));
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $products = $query->get()->keyBy('id');
+
+        $lines = [];
+        $subtotal = 0.0;
+
+        foreach ($quantities as $productId => $qty) {
+            $product = $products->get($productId);
+
+            if (!$product || !$product->is_active) {
+                throw new \DomainException("المنتج رقم {$productId} غير متاح");
+            }
+
+            if ($product->stock < $qty) {
+                throw new \DomainException(
+                    "الكمية المطلوبة من \"{$product->name}\" غير متوفرة (المتاح: {$product->stock})"
+                );
+            }
+
+            $unitPrice = (float) ($product->discount_price ?? $product->price);
+            $lineTotal = round($unitPrice * $qty, 2);
+            $subtotal += $lineTotal;
+
+            $lines[] = compact('product', 'qty', 'unitPrice', 'lineTotal');
+        }
+
+        return [$lines, round($subtotal, 2)];
+    }
+
+    protected function resolveLink(?string $ref, User $customer): ?PromotionalLink
+    {
+        if (!$ref) {
+            return null;
+        }
+
+        $link = $this->linkService->findActive($ref);
+        if (!$link) {
+            return null;
+        }
+
+        $influencer = $link->influencer;
+
+        $valid = $influencer
+            && $influencer->type === 'influencer'
+            && $influencer->is_active
+            && $influencer->id !== $customer->id; // المؤثر ميكسبش من مشترياته
+
+        return $valid ? $link : null;
+    }
+
     protected function assertTransitionAllowed(string $from, string $to): void
     {
         if (in_array($from, ['cancelled', 'returned'], true)) {
@@ -184,10 +261,10 @@ class OrderService
         $fromIndex    = array_search($from, self::FLOW, true);
 
         $allowed = match ($to) {
-            'cancelled' => $fromIndex < $shippedIndex,   // الإلغاء قبل الشحن بس
-            'returned'  => $fromIndex >= $shippedIndex,  // الإرجاع بعد الشحن بس
+            'cancelled' => $fromIndex < $shippedIndex,
+            'returned'  => $fromIndex >= $shippedIndex,
             default     => ($toIndex = array_search($to, self::FLOW, true)) !== false
-                           && $toIndex > $fromIndex,     // للأمام بس
+                           && $toIndex > $fromIndex,
         };
 
         if (!$allowed) {

@@ -29,6 +29,8 @@ class Order extends Model
         'city',
         'country',
         'notes',
+        'coupon_id',
+        'coupon_code',
     ];
 
     protected $casts = [
@@ -38,6 +40,13 @@ class Order extends Model
         'total' => 'decimal:2',
     ];
 
+      /** الحالات اللي مبتتحسبش مبيعات */
+    public const NON_SALE_STATUSES = ['cancelled', 'returned'];
+
+    public function coupon(): BelongsTo
+    {
+        return $this->belongsTo(Coupon::class);
+    }
     public function customer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'customer_id');

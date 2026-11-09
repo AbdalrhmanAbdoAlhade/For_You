@@ -15,6 +15,8 @@ class OrderController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
+                        'coupon_code'        => 'nullable|string|max:50',
+            'payment_method'     => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
             'items'              => 'required|array|min:1',
             'items.*.product_id' => 'required|integer|exists:products,id',
             'items.*.quantity'   => 'required|integer|min:1|max:100',

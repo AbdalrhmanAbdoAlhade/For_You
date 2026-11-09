@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Services\CartService;
+use App\Services\OrderService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class CheckoutController extends Controller
+{
+    public function __construct(
+        protected OrderService $orderService,
+        protected CartService $cartService
+    ) {}
+
+    /** يحسب الإجمالي والشحن والخصم من غير ما ينشئ طلب */
+    public function quote(Request $request)
+    {
+        $data = $request->validate([
+            'coupon_code' => 'nullable|string|max:50',
+            'city'        => 'nullable|string|max:100',
+        ]);
+
+        $data['items'] = $this->cartItems($request);
+
+        if (empty($data['items'])) {
+            return response()->json(['message' => 'السلة فارغة'], 422);
+        }
+
+        try {
+            return response()->json($this->orderService->quote($request->user(), $data));
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /** ينشئ الطلب من السلة ويفضيها */
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'customer_name'    => 'required|string|max:255',
+            'customer_phone'   => 'required|string|max:30',
+            'customer_email'   => 'nullable|email',
+            'shipping_address' => 'required|string',
+            'city'             => 'nullable|string|max:100',
+            'country'          => 'nullable|string|max:100',
+            'notes'            => 'nullable|string',
+            'coupon_code'      => 'nullable|string|max:50',
+            'ref'              => 'nullable|string|max:32',
+            'payment_method'   => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
+        ]);
+
+        $data['items'] = $this->cartItems($request);
+
+        if (empty($data['items'])) {
+            return response()->json(['message' => 'السلة فارغة'], 422);
+        }
+
+        try {
+            $order = DB::transaction(function () use ($request, $data) {
+                $order = $this->orderService->createOrder($request->user(), $data);
+                $this->cartService->clear($request->user());
+
+                return $order;
+            });
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json($order, 201);
+    }
+
+    protected function cartItems(Request $request): array
+    {
+        return $this->cartService->getCart($request->user())
+            ->items
+            ->map(fn ($i) => ['product_id' => $i->product_id, 'quantity' => $i->quantity])
+            ->values()
+            ->all();
+    }
+}

@@ -26,6 +26,9 @@ class InfluencerCommission extends Model
         'paid_at' => 'datetime',
     ];
 
+        /** العمولات اللي اتكسبت فعلاً */
+    public const EARNED_STATUSES = ['approved', 'paid'];
+
     public function influencer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'influencer_id');
