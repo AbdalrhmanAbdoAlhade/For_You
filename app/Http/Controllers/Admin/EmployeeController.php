@@ -11,6 +11,15 @@ use Illuminate\Support\Facades\Hash;
 
 class EmployeeController extends Controller
 {
+        protected function assertCanAssignRoles(Request $request, array $roleIds): void
+    {
+        if (empty($roleIds) || $request->user()->type === 'admin') {
+            return;
+        }
+
+        $hasSuper = \App\Models\Role::whereIn('id', $roleIds)->where('slug', 'super-admin')->exists();
+        abort_if($hasSuper, 403, 'لا يمكنك منح دور Super Admin');
+    }
     public function index(Request $request)
     {
         $employees = User::employees()
@@ -38,7 +47,7 @@ class EmployeeController extends Controller
             'role_ids'  => 'nullable|array',
             'role_ids.*'=> 'exists:roles,id',
         ]);
-
+$this->assertCanAssignRoles($request, $data['role_ids'] ?? []);
         $employee = User::create([
             'name'      => $data['name'],
             'email'     => $data['email'],
@@ -77,7 +86,7 @@ class EmployeeController extends Controller
             'role_ids'  => 'nullable|array',
             'role_ids.*'=> 'exists:roles,id',
         ]);
-
+$this->assertCanAssignRoles($request, $data['role_ids'] ?? []);
         if (isset($data['password'])) {
             $data['password'] = Hash::make($data['password']);
         } else {

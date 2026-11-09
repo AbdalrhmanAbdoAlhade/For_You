@@ -6,29 +6,49 @@ use App\Models\Order;
 use App\Models\InfluencerCommission;
 use App\Models\InfluencerWallet;
 use App\Models\WalletTransaction;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class InfluencerCommissionService
 {
-    public function calculateAndStore(Order $order): void
+    protected function defaultPercentage(): float
+    {
+        return (float) config('services.influencer.default_commission', 10);
+    }
+
+    /**
+     * يحسب عمولة كل item ويضيفها للمحفظة.
+     * Idempotent: لو الطلب اتحسبله عمولة قبل كده بيرجع collection فاضية.
+     *
+     * @return Collection<int, InfluencerCommission>
+     */
+    public function calculateAndStore(Order $order): Collection
     {
         if (!$order->influencer_id) {
-            return;
+            return collect();
         }
 
-        DB::transaction(function () use ($order) {
+        return DB::transaction(function () use ($order) {
+
+            // lock على الطلب عشان طلبين متزامنين ميحسبوش العمولة مرتين
+            Order::whereKey($order->id)->lockForUpdate()->first();
+
+            if (InfluencerCommission::where('order_id', $order->id)->exists()) {
+                return collect();
+            }
+
+            $created = collect();
 
             foreach ($order->items as $item) {
 
-                // نجيب نسبة العمولة (من المنتج المرتبط بالمؤثر أو نسبة عامة)
                 $pivot = $order->influencer
                     ->influencerProducts()
                     ->where('product_id', $item->product_id)
                     ->first();
 
-                $percentage = $pivot?->pivot?->commission_percentage ?? 10; // افتراضي 10%
+                $percentage = $pivot?->pivot?->commission_percentage ?? $this->defaultPercentage();
 
-                $commissionAmount = ($item->total * $percentage) / 100;
+                $commissionAmount = round(($item->total * $percentage) / 100, 2);
 
                 $commission = InfluencerCommission::create([
                     'influencer_id'         => $order->influencer_id,
@@ -41,13 +61,16 @@ class InfluencerCommissionService
                     'status'                => 'approved',
                 ]);
 
-                // إضافة المبلغ لمحفظة المؤثر
-                $this->addToWallet($order->influencer_id, $commissionAmount, $order->id, $commission->id);
+                $this->addToWallet($order->influencer_id, $commissionAmount, $order->id);
+
+                $created->push($commission);
             }
+
+            return $created;
         });
     }
 
-    protected function addToWallet(int $influencerId, float $amount, int $orderId, int $commissionId): void
+    protected function addToWallet(int $influencerId, float $amount, int $orderId): void
     {
         $wallet = InfluencerWallet::firstOrCreate(
             ['influencer_id' => $influencerId],
@@ -66,5 +89,54 @@ class InfluencerCommissionService
             'description'   => "عمولة من الطلب #{$orderId}",
             'status'        => 'completed',
         ]);
+    }
+
+        /**
+     * عند إلغاء أو إرجاع الطلب: نلغي العمولات ونخصمها من المحفظة.
+     * ملحوظة: لو المؤثر سحب فلوسه قبل الإرجاع الرصيد ممكن يبقى بالسالب (ده مقصود، بيتخصم من عمولاته الجاية).
+     */
+    public function reverseForOrder(Order $order): void
+    {
+        if (!$order->influencer_id) {
+            return;
+        }
+
+        DB::transaction(function () use ($order) {
+
+            $commissions = InfluencerCommission::where('order_id', $order->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->lockForUpdate()
+                ->get();
+
+            if ($commissions->isEmpty()) {
+                return;
+            }
+
+            $total = round((float) $commissions->sum('commission_amount'), 2);
+
+            InfluencerCommission::whereIn('id', $commissions->pluck('id'))
+                ->update(['status' => 'cancelled']);
+
+            $wallet = InfluencerWallet::where('influencer_id', $order->influencer_id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$wallet) {
+                return;
+            }
+
+            $wallet->decrement('balance', $total);
+            $wallet->decrement('total_earned', $total);
+
+            WalletTransaction::create([
+                'wallet_id'     => $wallet->id,
+                'order_id'      => $order->id,
+                'type'          => 'debit',
+                'amount'        => $total,
+                'balance_after' => $wallet->fresh()->balance,
+                'description'   => "استرجاع عمولة الطلب #{$order->id} ({$order->status})",
+                'status'        => 'completed',
+            ]);
+        });
     }
 }

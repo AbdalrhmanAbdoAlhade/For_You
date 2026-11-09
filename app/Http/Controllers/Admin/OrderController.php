@@ -35,13 +35,28 @@ class OrderController extends Controller
         );
     }
 
-    public function updateStatus(Request $request, Order $order)
+        public function updateStatus(Request $request, Order $order)
     {
-        $request->validate([
+        $data = $request->validate([
             'status' => 'required|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
         ]);
 
-        $order = $this->orderService->updateStatus($order, $request->status);
+        $user = $request->user();
+
+        // الإلغاء والإرجاع محتاجين orders.cancel أو orders.manage، والباقي orders.update أو orders.manage
+        $needed = in_array($data['status'], ['cancelled', 'returned'], true)
+            ? ['orders.cancel', 'orders.manage']
+            : ['orders.update', 'orders.manage'];
+
+        if (!collect($needed)->contains(fn ($p) => $user->hasPermission($p))) {
+            return response()->json(['message' => 'ليس لديك صلاحية لتنفيذ هذا الإجراء'], 403);
+        }
+
+        try {
+            $order = $this->orderService->updateStatus($order, $data['status']);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json([
             'message' => 'تم تحديث حالة الطلب بنجاح',

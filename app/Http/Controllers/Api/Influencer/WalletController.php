@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Influencer;
 
 use App\Http\Controllers\Controller;
+use App\Models\WithdrawalRequest;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
 
@@ -11,38 +12,7 @@ class WalletController extends Controller
     public function __construct(
         protected WalletService $walletService
     ) {}
-// داخل Api/Influencer/WalletController
 
-public function requestWithdrawal(Request $request)
-{
-    $data = $request->validate([
-        'amount'          => 'required|numeric|min:50',
-        'payment_method'  => 'required|string',
-        'account_details' => 'required|string',
-    ]);
-
-    try {
-        $withdrawal = $this->walletService->requestWithdrawal(
-            $request->user(),
-            $data['amount'],
-            $data['payment_method'],
-            $data['account_details']
-        );
-
-        return response()->json($withdrawal, 201);
-    } catch (\Exception $e) {
-        return response()->json(['message' => $e->getMessage()], 422);
-    }
-}
-
-public function myWithdrawals(Request $request)
-{
-    $withdrawals = WithdrawalRequest::where('influencer_id', $request->user()->id)
-        ->latest()
-        ->paginate(15);
-
-    return response()->json($withdrawals);
-}
     public function show(Request $request)
     {
         $influencer = $request->user();
@@ -54,5 +24,36 @@ public function myWithdrawals(Request $request)
             'wallet'       => $wallet,
             'transactions' => $wallet->transactions()->latest()->paginate(20),
         ]);
+    }
+
+    public function requestWithdrawal(Request $request)
+    {
+        $data = $request->validate([
+            'amount'          => 'required|numeric|min:50',
+            'payment_method'  => 'required|string',
+            'account_details' => 'required|string',
+        ]);
+
+        try {
+            $withdrawal = $this->walletService->requestWithdrawal(
+                $request->user(),
+                $data['amount'],
+                $data['payment_method'],
+                $data['account_details']
+            );
+
+            return response()->json($withdrawal, 201);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function myWithdrawals(Request $request)
+    {
+        $withdrawals = WithdrawalRequest::where('influencer_id', $request->user()->id)
+            ->latest()
+            ->paginate(15);
+
+        return response()->json($withdrawals);
     }
 }

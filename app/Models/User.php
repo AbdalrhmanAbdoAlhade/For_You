@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\Permission;
 
 class User extends Authenticatable
 {
@@ -52,9 +53,29 @@ class User extends Authenticatable
             ->unique('id');
     }
 
+        protected ?\Illuminate\Support\Collection $permissionSlugsCache = null;
+
+    public function permissionSlugs(): \Illuminate\Support\Collection
+    {
+        return $this->permissionSlugsCache ??= Permission::query()
+            ->whereHas('roles', function ($q) {
+                $q->where('is_active', true)
+                  ->whereHas('users', fn ($u) => $u->where('users.id', $this->id));
+            })
+            ->pluck('slug');
+    }
+
     public function hasPermission(string $slug): bool
     {
-        return $this->permissions()->contains('slug', $slug);
+        if ($this->type === 'admin') {
+            return true; // الأدمن عنده كل الصلاحيات
+        }
+
+        if ($this->type !== 'employee') {
+            return false;
+        }
+
+        return $this->permissionSlugs()->contains($slug);
     }
 
     public function hasRole(string $slug): bool

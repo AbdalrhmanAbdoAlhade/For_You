@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Product;
 use App\Services\PromotionalLinkService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
@@ -17,32 +16,23 @@ class InfluencerController extends Controller
         protected WalletService $walletService
     ) {}
 
+    public function index(Request $request)
+    {
+        $influencers = User::influencers()
+            ->with('wallet')
+            ->when($request->search, function ($q) use ($request) {
+                $q->where(function ($q) use ($request) {
+                    $q->where('name', 'like', "%{$request->search}%")
+                      ->orWhere('email', 'like', "%{$request->search}%")
+                      ->orWhere('phone', 'like', "%{$request->search}%");
+                });
+            })
+            ->when($request->is_active !== null, fn($q) => $q->where('is_active', $request->boolean('is_active')))
+            ->latest()
+            ->paginate(20);
 
-public function index(Request $request)
-{
-    $withdrawals = WithdrawalRequest::with(['influencer', 'wallet'])
-        ->when($request->status, fn($q) => $q->where('status', $request->status))
-        ->latest()
-        ->paginate(20);
-
-    return response()->json($withdrawals);
-}
-
-public function process(Request $request, WithdrawalRequest $withdrawal)
-{
-    $data = $request->validate([
-        'status'     => 'required|in:approved,rejected,paid',
-        'admin_note' => 'nullable|string',
-    ]);
-
-    $this->walletService->processWithdrawal(
-        $withdrawal,
-        $data['status'],
-        $data['admin_note'] ?? null
-    );
-
-    return response()->json(['message' => 'تم معالجة طلب السحب بنجاح']);
-}
+        return response()->json($influencers);
+    }
 
     public function store(Request $request)
     {
@@ -87,13 +77,25 @@ public function process(Request $request, WithdrawalRequest $withdrawal)
             'is_active' => 'boolean',
         ]);
 
-        if (isset($data['password'])) {
+        if (!empty($data['password'])) {
             $data['password'] = Hash::make($data['password']);
+        } else {
+            unset($data['password']);
         }
 
         $influencer->update($data);
 
         return response()->json($influencer);
+    }
+
+    public function destroy(User $influencer)
+    {
+        abort_if($influencer->type !== 'influencer', 404);
+
+        $influencer->tokens()->delete();
+        $influencer->delete();
+
+        return response()->json(['message' => 'تم حذف المؤثر بنجاح']);
     }
 
     public function attachProducts(Request $request, User $influencer)
@@ -109,7 +111,7 @@ public function process(Request $request, WithdrawalRequest $withdrawal)
         $syncData = [];
         foreach ($data['products'] as $item) {
             $syncData[$item['product_id']] = [
-                'commission_percentage' => $item['commission_percentage'] ?? 10,
+                'commission_percentage' => $item['commission_percentage'] ?? config('services.influencer.default_commission', 10),
                 'is_active' => true,
             ];
         }

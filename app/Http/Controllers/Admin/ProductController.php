@@ -7,6 +7,7 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Services\FileUploadService;
+use Illuminate\Validation\Rule;
 
 
 
@@ -64,7 +65,7 @@ public function store(Request $request)
         return response()->json($product->load('category', 'influencers'));
     }
 
-    public function update(Request $request, Product $product)
+        public function update(Request $request, Product $product)
     {
         $data = $request->validate([
             'category_id'       => 'sometimes|exists:categories,id',
@@ -76,12 +77,37 @@ public function store(Request $request)
             'stock'             => 'sometimes|integer|min:0',
             'sku'               => 'nullable|string|unique:products,sku,' . $product->id,
             'images'            => 'nullable|array',
+            'images.*'          => 'image|mimes:jpg,jpeg,png,webp|max:2048',
+            'remove_images'     => 'nullable|array',   // مسارات الصور اللي عايز تمسحها
+            'remove_images.*'   => 'string',
             'is_featured'       => 'boolean',
             'is_active'         => 'boolean',
         ]);
 
         if (isset($data['name'])) {
             $data['slug'] = Str::slug($data['name']);
+        }
+
+        // الصور: مسح المطلوب + رفع الجديد، مع الإبقاء على الباقي
+        $current = $product->images ?? [];
+
+        $toRemove = array_intersect($request->input('remove_images', []), $current);
+        foreach ($toRemove as $path) {
+            $this->fileUploadService->delete($path);
+        }
+        $current = array_values(array_diff($current, $toRemove));
+
+        if ($request->hasFile('images')) {
+            $current = array_merge(
+                $current,
+                $this->fileUploadService->uploadMultiple($request->file('images'), 'products')
+            );
+        }
+
+        unset($data['images'], $data['remove_images']);
+
+        if ($request->hasFile('images') || !empty($toRemove)) {
+            $data['images'] = $current;
         }
 
         $product->update($data);

@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\InfluencerWallet;
+use App\Models\User;
+use App\Models\WithdrawalRequest;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Facades\DB;
 
@@ -15,48 +17,51 @@ class WalletService
             ['balance' => 0, 'total_earned' => 0, 'total_withdrawn' => 0]
         );
     }
-public function requestWithdrawal(User $influencer, float $amount, string $paymentMethod, string $accountDetails): WithdrawalRequest
-{
-    $wallet = $this->getOrCreateWallet($influencer->id);
 
-    if ($wallet->balance < $amount) {
-        throw new \Exception('رصيد المحفظة غير كافٍ');
-    }
+    public function requestWithdrawal(User $influencer, float $amount, string $paymentMethod, string $accountDetails): WithdrawalRequest
+    {
+        $wallet = $this->getOrCreateWallet($influencer->id);
 
-    if ($amount < 50) { // حد أدنى للسحب
-        throw new \Exception('الحد الأدنى للسحب هو 50 ج.م');
-    }
-
-    return WithdrawalRequest::create([
-        'influencer_id'   => $influencer->id,
-        'wallet_id'       => $wallet->id,
-        'amount'          => $amount,
-        'payment_method'  => $paymentMethod,
-        'account_details' => $accountDetails,
-        'status'          => 'pending',
-    ]);
-}
-
-public function processWithdrawal(WithdrawalRequest $request, string $status, ?string $adminNote = null): void
-{
-    DB::transaction(function () use ($request, $status, $adminNote) {
-
-        $request->update([
-            'status'       => $status,
-            'admin_note'   => $adminNote,
-            'processed_at' => now(),
-        ]);
-
-        if ($status === 'approved' || $status === 'paid') {
-            $this->withdraw(
-                $request->influencer_id,
-                $request->amount,
-                "سحب طلب رقم #{$request->id}"
-            );
+        if ($amount < 50) { // حد أدنى للسحب
+            throw new \Exception('الحد الأدنى للسحب هو 50 ج.م');
         }
-    });
-}
-    public function withdraw(int $influencerId, float $amount, string $description = null): WalletTransaction
+
+        if ($wallet->balance < $amount) {
+            throw new \Exception('رصيد المحفظة غير كافٍ');
+        }
+
+        return WithdrawalRequest::create([
+            'influencer_id'   => $influencer->id,
+            'wallet_id'       => $wallet->id,
+            'amount'          => $amount,
+            'payment_method'  => $paymentMethod,
+            'account_details' => $accountDetails,
+            'status'          => 'pending',
+        ]);
+    }
+
+    public function processWithdrawal(WithdrawalRequest $request, string $status, ?string $adminNote = null): void
+    {
+        DB::transaction(function () use ($request, $status, $adminNote) {
+
+            // الخصم الأول، لو الرصيد مش كافي بيرمي Exception قبل تغيير الحالة
+            if ($status === 'approved' || $status === 'paid') {
+                $this->withdraw(
+                    $request->influencer_id,
+                    (float) $request->amount,
+                    "سحب طلب رقم #{$request->id}"
+                );
+            }
+
+            $request->update([
+                'status'       => $status,
+                'admin_note'   => $adminNote,
+                'processed_at' => now(),
+            ]);
+        });
+    }
+
+    public function withdraw(int $influencerId, float $amount, ?string $description = null): WalletTransaction
     {
         return DB::transaction(function () use ($influencerId, $amount, $description) {
 

@@ -4,69 +4,35 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\OrderService;
-use App\Services\PromotionalLinkService;
 use Illuminate\Http\Request;
 
 class OrderController extends Controller
 {
     public function __construct(
-        protected OrderService $orderService,
-        protected PromotionalLinkService $linkService
+        protected OrderService $orderService
     ) {}
 
     public function store(Request $request)
     {
         $data = $request->validate([
-            'items'                 => 'required|array|min:1',
-            'items.*.product_id'    => 'required|exists:products,id',
-            'items.*.quantity'      => 'required|integer|min:1',
-            'customer_name'         => 'required|string',
-            'customer_phone'        => 'required|string',
-            'customer_email'        => 'nullable|email',
-            'shipping_address'      => 'required|string',
-            'city'                  => 'nullable|string',
-            'country'               => 'nullable|string',
-            'notes'                 => 'nullable|string',
-            'ref'                   => 'nullable|string', // كود الرابط الترويجي
+            'items'              => 'required|array|min:1',
+            'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.quantity'   => 'required|integer|min:1|max:100',
+            'customer_name'      => 'required|string|max:255',
+            'customer_phone'     => 'required|string|max:30',
+            'customer_email'     => 'nullable|email',
+            'shipping_address'   => 'required|string',
+            'city'               => 'nullable|string|max:100',
+            'country'            => 'nullable|string|max:100',
+            'notes'              => 'nullable|string',
+            'ref'                => 'nullable|string|max:32', // كود الرابط الترويجي
         ]);
 
-        $influencerId = null;
-        $promotionalLinkId = null;
-
-        if (!empty($data['ref'])) {
-            $link = $this->linkService->trackClick($data['ref']);
-            if ($link) {
-                $influencerId = $link->influencer_id;
-                $promotionalLinkId = $link->id;
-            }
+        try {
+            $order = $this->orderService->createOrder($request->user(), $data);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
-
-        // حساب المجموع (مبسط - يفضل يكون في Service)
-        $subtotal = 0;
-        foreach ($data['items'] as $item) {
-            $product = \App\Models\Product::find($item['product_id']);
-            $subtotal += ($product->discount_price ?? $product->price) * $item['quantity'];
-        }
-
-        $orderData = [
-            'customer_id'         => $request->user()->id,
-            'influencer_id'       => $influencerId,
-            'promotional_link_id' => $promotionalLinkId,
-            'subtotal'            => $subtotal,
-            'discount'            => 0,
-            'shipping_cost'       => 0,
-            'total'               => $subtotal,
-            'customer_name'       => $data['customer_name'],
-            'customer_phone'      => $data['customer_phone'],
-            'customer_email'      => $data['customer_email'] ?? null,
-            'shipping_address'    => $data['shipping_address'],
-            'city'                => $data['city'] ?? null,
-            'country'             => $data['country'] ?? null,
-            'notes'               => $data['notes'] ?? null,
-            'items'               => $data['items'],
-        ];
-
-        $order = $this->orderService->createOrder($orderData);
 
         return response()->json($order, 201);
     }

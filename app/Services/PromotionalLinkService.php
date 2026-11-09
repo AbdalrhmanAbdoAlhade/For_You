@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\PromotionalLink;
 use App\Models\User;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 
 class PromotionalLinkService
 {
@@ -27,14 +28,33 @@ class PromotionalLinkService
         ]);
     }
 
-    public function trackClick(string $code): ?PromotionalLink
+      /**
+     * رابط شغال وغير منتهي (من غير ما يزود الـ clicks).
+     */
+    public function findActive(string $code): ?PromotionalLink
     {
-        $link = PromotionalLink::where('code', $code)
+        return PromotionalLink::where('code', $code)
             ->where('is_active', true)
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
             ->first();
+    }
+
+    /**
+     * بيتنادى لما العميل يفتح الرابط. نفس الزائر مايتحسبش أكتر من مرة في الساعة.
+     */
+    public function trackClick(string $code, ?string $fingerprint = null): ?PromotionalLink
+    {
+        $link = $this->findActive($code);
 
         if ($link) {
-            $link->increment('clicks');
+            $isNewVisit = !$fingerprint
+                || Cache::add("link_click:{$link->id}:{$fingerprint}", 1, now()->addHour());
+
+            if ($isNewVisit) {
+                $link->increment('clicks');
+            }
         }
 
         return $link;
