@@ -1,0 +1,202 @@
+[2026-11-09 17:15:18] local.ERROR: The D:\For_You-main.app\bootstrap\cache directory must be present and writable. {"exception":"[object] (Exception(code: 0): The D:\\For_You-main.app\\bootstrap\\cache directory must be present and writable. at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php:179)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(132): Illuminate/Foundation/PackageManifest->write(Array)
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(108): Illuminate/Foundation/PackageManifest->build()
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(90): Illuminate/Foundation/PackageManifest->getManifest()
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(79): Illuminate/Foundation/PackageManifest->config('aliases')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/RegisterFacades.php(26): Illuminate/Foundation/PackageManifest->aliases()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/RegisterFacades->bootstrap(Object(Illuminate/Foundation/Application))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#7 D:/For_You-main.app/storage/framework/lsp-d567f82e8e375518.php(5): Illuminate/Foundation/Console/Kernel->bootstrap()
+#8 {main}
+"} 
+[2026-11-09 17:15:18] local.ERROR: The D:\For_You-main.app\bootstrap\cache directory must be present and writable. {"exception":"[object] (Exception(code: 0): The D:\\For_You-main.app\\bootstrap\\cache directory must be present and writable. at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php:179)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(132): Illuminate/Foundation/PackageManifest->write(Array)
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(108): Illuminate/Foundation/PackageManifest->build()
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(90): Illuminate/Foundation/PackageManifest->getManifest()
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(79): Illuminate/Foundation/PackageManifest->config('aliases')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/RegisterFacades.php(26): Illuminate/Foundation/PackageManifest->aliases()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/RegisterFacades->bootstrap(Object(Illuminate/Foundation/Application))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#7 D:/For_You-main.app/storage/framework/lsp-d35e3faecd2fd295.php(5): Illuminate/Foundation/Console/Kernel->bootstrap()
+#8 {main}
+"} 
+[2026-11-09 17:15:19] local.ERROR: The D:\For_You-main.app\bootstrap\cache directory must be present and writable. {"exception":"[object] (Exception(code: 0): The D:\\For_You-main.app\\bootstrap\\cache directory must be present and writable. at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php:179)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(132): Illuminate/Foundation/PackageManifest->write(Array)
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(108): Illuminate/Foundation/PackageManifest->build()
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(90): Illuminate/Foundation/PackageManifest->getManifest()
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(79): Illuminate/Foundation/PackageManifest->config('aliases')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/RegisterFacades.php(26): Illuminate/Foundation/PackageManifest->aliases()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/RegisterFacades->bootstrap(Object(Illuminate/Foundation/Application))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#7 D:/For_You-main.app/storage/framework/lsp-2ee5d1d912725eb4.php(5): Illuminate/Foundation/Console/Kernel->bootstrap()
+#8 {main}
+"} 
+[2026-11-09 17:16:20] local.ERROR: The D:\For_You-main.app\bootstrap\cache directory must be present and writable. {"exception":"[object] (Exception(code: 0): The D:\\For_You-main.app\\bootstrap\\cache directory must be present and writable. at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php:179)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(132): Illuminate/Foundation/PackageManifest->write(Array)
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(108): Illuminate/Foundation/PackageManifest->build()
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(90): Illuminate/Foundation/PackageManifest->getManifest()
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(79): Illuminate/Foundation/PackageManifest->config('aliases')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/RegisterFacades.php(26): Illuminate/Foundation/PackageManifest->aliases()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/RegisterFacades->bootstrap(Object(Illuminate/Foundation/Application))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#7 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->bootstrap()
+#8 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1243): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#9 D:/For_You-main.app/artisan(16): Illuminate/Foundation/Application->handleCommand(Object(Symfony/Component/Console/Input/ArgvInput))
+#10 {main}
+"} 
+[2026-11-09 17:16:20] local.ERROR: The D:\For_You-main.app\bootstrap\cache directory must be present and writable. {"exception":"[object] (Exception(code: 0): The D:\\For_You-main.app\\bootstrap\\cache directory must be present and writable. at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php:179)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(132): Illuminate/Foundation/PackageManifest->write(Array)
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(108): Illuminate/Foundation/PackageManifest->build()
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(90): Illuminate/Foundation/PackageManifest->getManifest()
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/PackageManifest.php(79): Illuminate/Foundation/PackageManifest->config('aliases')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/RegisterFacades.php(26): Illuminate/Foundation/PackageManifest->aliases()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/RegisterFacades->bootstrap(Object(Illuminate/Foundation/Application))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#7 D:/For_You-main.app/storage/framework/lsp-104d7a1855c1f8bf.php(5): Illuminate/Foundation/Console/Kernel->bootstrap()
+#8 {main}
+"} 
+[2026-11-09 17:33:09] local.ERROR: syntax error, unexpected token "<", expecting end of file {"exception":"[object] (ParseError(code: 0): syntax error, unexpected token \"<\", expecting end of file at D:/For_You-main.app/routes/api.php:15)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(538): Illuminate/Routing/RouteFileRegistrar->register('D://For_You-main...')
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(492): Illuminate/Routing/Router->loadRoutes('D://For_You-main...')
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/RouteRegistrar.php(225): Illuminate/Routing/Router->group(Array, 'D://For_You-main...')
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Configuration/ApplicationBuilder.php(216): Illuminate/Routing/RouteRegistrar->group('D://For_You-main...')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Configuration/ApplicationBuilder->{closure:Illuminate/Foundation/Configuration/ApplicationBuilder::buildRoutingCallback():207}()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#7 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#8 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#9 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(162): Illuminate/Container/Container->call(Object(Closure))
+#10 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(59): Illuminate/Foundation/Support/Providers/RouteServiceProvider->loadRoutes()
+#11 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Support/Providers/RouteServiceProvider->{closure:Illuminate/Foundation/Support/Providers/RouteServiceProvider::register():53}()
+#12 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#13 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#14 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#15 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#16 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php(150): Illuminate/Container/Container->call(Object(Closure))
+#17 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1162): Illuminate/Support/ServiceProvider->callBootedCallbacks()
+#18 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1140): Illuminate/Foundation/Application->bootProvider(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider))
+#19 [internal function]: Illuminate/Foundation/Application->{closure:Illuminate/Foundation/Application::boot():1139}(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider), 'Illuminate//Foun...')
+#20 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1139): array_walk(Array, Object(Closure))
+#21 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/BootProviders.php(17): Illuminate/Foundation/Application->boot()
+#22 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/BootProviders->bootstrap(Object(Illuminate/Foundation/Application))
+#23 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#24 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->bootstrap()
+#25 Command line code(1): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#26 {main}
+"} 
+[2026-11-09 17:33:16] local.ERROR: syntax error, unexpected token "<", expecting end of file {"exception":"[object] (ParseError(code: 0): syntax error, unexpected token \"<\", expecting end of file at D:/For_You-main.app/routes/api.php:15)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(538): Illuminate/Routing/RouteFileRegistrar->register('D://For_You-main...')
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(492): Illuminate/Routing/Router->loadRoutes('D://For_You-main...')
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/RouteRegistrar.php(225): Illuminate/Routing/Router->group(Array, 'D://For_You-main...')
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Configuration/ApplicationBuilder.php(216): Illuminate/Routing/RouteRegistrar->group('D://For_You-main...')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Configuration/ApplicationBuilder->{closure:Illuminate/Foundation/Configuration/ApplicationBuilder::buildRoutingCallback():207}()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#7 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#8 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#9 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(162): Illuminate/Container/Container->call(Object(Closure))
+#10 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(59): Illuminate/Foundation/Support/Providers/RouteServiceProvider->loadRoutes()
+#11 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Support/Providers/RouteServiceProvider->{closure:Illuminate/Foundation/Support/Providers/RouteServiceProvider::register():53}()
+#12 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#13 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#14 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#15 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#16 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php(150): Illuminate/Container/Container->call(Object(Closure))
+#17 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1162): Illuminate/Support/ServiceProvider->callBootedCallbacks()
+#18 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1140): Illuminate/Foundation/Application->bootProvider(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider))
+#19 [internal function]: Illuminate/Foundation/Application->{closure:Illuminate/Foundation/Application::boot():1139}(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider), 'Illuminate//Foun...')
+#20 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1139): array_walk(Array, Object(Closure))
+#21 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/BootProviders.php(17): Illuminate/Foundation/Application->boot()
+#22 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/BootProviders->bootstrap(Object(Illuminate/Foundation/Application))
+#23 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#24 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->bootstrap()
+#25 Command line code(1): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#26 {main}
+"} 
+[2026-11-09 17:33:16] local.ERROR: syntax error, unexpected token "<", expecting end of file {"exception":"[object] (ParseError(code: 0): syntax error, unexpected token \"<\", expecting end of file at D:/For_You-main.app/routes/api.php:15)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(538): Illuminate/Routing/RouteFileRegistrar->register('D://For_You-main...')
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/Router.php(492): Illuminate/Routing/Router->loadRoutes('D://For_You-main...')
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Routing/RouteRegistrar.php(225): Illuminate/Routing/Router->group(Array, 'D://For_You-main...')
+#3 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Configuration/ApplicationBuilder.php(216): Illuminate/Routing/RouteRegistrar->group('D://For_You-main...')
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Configuration/ApplicationBuilder->{closure:Illuminate/Foundation/Configuration/ApplicationBuilder::buildRoutingCallback():207}()
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#7 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#8 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#9 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(162): Illuminate/Container/Container->call(Object(Closure))
+#10 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Support/Providers/RouteServiceProvider.php(59): Illuminate/Foundation/Support/Providers/RouteServiceProvider->loadRoutes()
+#11 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Support/Providers/RouteServiceProvider->{closure:Illuminate/Foundation/Support/Providers/RouteServiceProvider::register():53}()
+#12 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#13 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(84): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#14 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Object(Closure), Object(Closure))
+#15 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Object(Closure), Array, NULL)
+#16 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Support/ServiceProvider.php(150): Illuminate/Container/Container->call(Object(Closure))
+#17 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1162): Illuminate/Support/ServiceProvider->callBootedCallbacks()
+#18 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1140): Illuminate/Foundation/Application->bootProvider(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider))
+#19 [internal function]: Illuminate/Foundation/Application->{closure:Illuminate/Foundation/Application::boot():1139}(Object(Illuminate/Foundation/Support/Providers/RouteServiceProvider), 'Illuminate//Foun...')
+#20 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1139): array_walk(Array, Object(Closure))
+#21 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/BootProviders.php(17): Illuminate/Foundation/Application->boot()
+#22 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(350): Illuminate/Foundation/Bootstrap/BootProviders->bootstrap(Object(Illuminate/Foundation/Application))
+#23 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(510): Illuminate/Foundation/Application->bootstrapWith(Array)
+#24 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->bootstrap()
+#25 Command line code(1): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#26 {main}
+"} 
+[2026-11-09 17:33:57] local.ERROR: Cannot use Illuminate\Support\Facades\Route as Route because the name is already in use {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Cannot use Illuminate\\Support\\Facades\\Route as Route because the name is already in use at D:/For_You-main.app/routes/api.php:15)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:30:36] local.ERROR: Namespace declaration statement has to be the very first statement or after any declare call in the script {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Namespace declaration statement has to be the very first statement or after any declare call in the script at D:/For_You-main.app/app/Providers/AppServiceProvider.php:4)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:30:37] local.ERROR: Namespace declaration statement has to be the very first statement or after any declare call in the script {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Namespace declaration statement has to be the very first statement or after any declare call in the script at D:/For_You-main.app/app/Providers/AppServiceProvider.php:4)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:30:49] local.ERROR: Namespace declaration statement has to be the very first statement or after any declare call in the script {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Namespace declaration statement has to be the very first statement or after any declare call in the script at D:/For_You-main.app/app/Providers/AppServiceProvider.php:4)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:30:54] local.ERROR: Namespace declaration statement has to be the very first statement or after any declare call in the script {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Namespace declaration statement has to be the very first statement or after any declare call in the script at D:/For_You-main.app/app/Providers/AppServiceProvider.php:4)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:30:54] local.ERROR: Namespace declaration statement has to be the very first statement or after any declare call in the script {"exception":"[object] (Symfony\\Component\\ErrorHandler\\Error\\FatalError(code: 0): Namespace declaration statement has to be the very first statement or after any declare call in the script at D:/For_You-main.app/app/Providers/AppServiceProvider.php:4)
+[stacktrace]
+#0 {main}
+"} 
+[2026-11-09 18:32:00] local.ERROR: Class "WithdrawalController" does not exist {"exception":"[object] (ReflectionException(code: -1): Class \"WithdrawalController\" does not exist at D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php:290)
+[stacktrace]
+#0 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php(290): ReflectionClass->__construct('WithdrawalContr...')
+#1 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php(166): Illuminate/Foundation/Console/RouteListCommand->isVendorRoute(Object(Illuminate/Routing/Route))
+#2 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php(133): Illuminate/Foundation/Console/RouteListCommand->getRouteInformation(Object(Illuminate/Routing/Route))
+#3 [internal function]: Illuminate/Foundation/Console/RouteListCommand->{closure:Illuminate/Foundation/Console/RouteListCommand::getRoutes():133}(Object(Illuminate/Routing/Route), 41)
+#4 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Collections/Arr.php(868): array_map(Object(Closure), Array, Array)
+#5 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Collections/Collection.php(844): Illuminate/Support/Arr::map(Array, Object(Closure))
+#6 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php(133): Illuminate/Support/Collection->map(Object(Closure))
+#7 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/RouteListCommand.php(116): Illuminate/Foundation/Console/RouteListCommand->getRoutes()
+#8 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): Illuminate/Foundation/Console/RouteListCommand->handle()
+#9 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate/Container/BoundMethod::{closure:Illuminate/Container/BoundMethod::call():35}()
+#10 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(96): Illuminate/Container/Util::unwrapIfClosure(Object(Closure))
+#11 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(35): Illuminate/Container/BoundMethod::callBoundMethod(Object(Illuminate/Foundation/Application), Array, Object(Closure))
+#12 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Container/Container.php(803): Illuminate/Container/BoundMethod::call(Object(Illuminate/Foundation/Application), Array, Array, NULL)
+#13 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Console/Command.php(292): Illuminate/Container/Container->call(Array)
+#14 D:/For_You-main.app/vendor/symfony/console/Command/Command.php(285): Illuminate/Console/Command->execute(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#15 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Console/Command.php(261): Symfony/Component/Console/Command/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Illuminate/Console/OutputStyle))
+#16 D:/For_You-main.app/vendor/symfony/console/Application.php(1154): Illuminate/Console/Command->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#17 D:/For_You-main.app/vendor/symfony/console/Application.php(380): Symfony/Component/Console/Application->doRunCommand(Object(Illuminate/Foundation/Console/RouteListCommand), Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#18 D:/For_You-main.app/vendor/symfony/console/Application.php(219): Symfony/Component/Console/Application->doRun(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#19 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(205): Symfony/Component/Console/Application->run(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#20 D:/For_You-main.app/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(1243): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#21 D:/For_You-main.app/artisan(16): Illuminate/Foundation/Application->handleCommand(Object(Symfony/Component/Console/Input/ArgvInput))
+#22 {main}
+"} 
