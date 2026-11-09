@@ -27,7 +27,9 @@ return [
     'key_id'        => env('APPLE_KEY_ID'),
     'private_key'   => env('APPLE_PRIVATE_KEY'),
 ],
-
+    'influencer' => [
+        'default_commission' => env('INFLUENCER_DEFAULT_COMMISSION', 10),
+    ],
 
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
