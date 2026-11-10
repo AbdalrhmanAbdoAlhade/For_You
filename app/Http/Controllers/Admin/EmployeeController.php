@@ -24,10 +24,13 @@ class EmployeeController extends Controller
     {
         $employees = User::employees()
             ->with('roles')
-            ->when($request->search, function ($q) use ($request) {
-                $q->where('name', 'like', "%{$request->search}%")
-                  ->orWhere('email', 'like', "%{$request->search}%")
-                  ->orWhere('phone', 'like', "%{$request->search}%");
+           ->when($request->filled('search'), function ($q) use ($request) {
+    $search = trim($request->string('search')->toString());
+
+    $q->where(function ($searchQuery) use ($search) {
+        $searchQuery->where('name', 'like', "%{$search}%")
+            ->orWhere('email', 'like', "%{$search}%")
+            ->orWhere('phone', 'like', "%{$search}%");
             })
             ->when($request->is_active !== null, fn($q) => $q->where('is_active', $request->boolean('is_active')))
             ->latest()
