@@ -182,6 +182,23 @@ class OrderService
             }
 
             $this->assertTransitionAllowed($order->status, $status);
+            
+                            // منع الشحن أو التوصيل قبل تأكيد الدفع، حسب إعدادات المتجر.
+                if (
+                    config('store.require_payment_before_shipping', true)
+                    && in_array($status, ['shipped', 'delivered'], true)
+                ) {
+                    $payment = $order->payment()
+                        ->lockForUpdate()
+                        ->first();
+                
+                    if (!$payment || $payment->status !== 'paid') {
+                        throw new \DomainException(
+                            'لا يمكن شحن أو تسليم الطلب قبل تأكيد الدفع'
+                        );
+                    }
+                }
+            
             $previousStatus = $order->status;
 
             $order->update(['status' => $status]);
