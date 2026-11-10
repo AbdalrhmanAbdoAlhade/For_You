@@ -227,7 +227,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('wallets/{wallet}', [AdminInfluencerWalletController::class, 'show'])->middleware('permission:influencers.wallets');
         Route::get('wallet-transactions', [AdminInfluencerWalletController::class, 'transactions'])->middleware('permission:influencers.wallets');
         Route::get('withdrawals', [WithdrawalController::class, 'index'])->middleware('permission:influencers.wallets');
-        Route::patch('withdrawals/{withdrawal}/process', [WithdrawalController::class, 'process'])->middleware('permission:influencers.commissions');
+        Route::patch('withdrawals/{withdrawal}/process', [WithdrawalController::class, 'process'])
+    ->middleware('permission:influencers.wallets');
 
         // ---- Banners ----
         Route::get('banners', [BannerController::class, 'index'])->middleware('permission:banners.view');
