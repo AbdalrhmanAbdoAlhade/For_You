@@ -15,6 +15,7 @@ class WalletTransaction extends Model
         'balance_after',
         'description',
         'status',
+    'withdrawal_request_id',
     ];
 
     protected $casts = [
