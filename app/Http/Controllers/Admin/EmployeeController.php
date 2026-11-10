@@ -20,24 +20,31 @@ class EmployeeController extends Controller
         $hasSuper = \App\Models\Role::whereIn('id', $roleIds)->where('slug', 'super-admin')->exists();
         abort_if($hasSuper, 403, 'لا يمكنك منح دور Super Admin');
     }
-    public function index(Request $request)
-    {
-        $employees = User::employees()
-            ->with('roles')
-           ->when($request->filled('search'), function ($q) use ($request) {
-    $search = trim($request->string('search')->toString());
+   public function index(Request $request)
+{
+    $employees = User::employees()
+        ->with('roles')
+        ->when($request->filled('search'), function ($q) use ($request) {
+            $search = trim($request->string('search')->toString());
 
-    $q->where(function ($searchQuery) use ($search) {
-        $searchQuery->where('name', 'like', "%{$search}%")
-            ->orWhere('email', 'like', "%{$search}%")
-            ->orWhere('phone', 'like', "%{$search}%");
-            })
-            ->when($request->is_active !== null, fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->latest()
-            ->paginate(20);
+            $q->where(function ($searchQuery) use ($search) {
+                $searchQuery->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+            });
+        })
+        ->when(
+            $request->has('is_active'),
+            fn ($q) => $q->where(
+                'is_active',
+                $request->boolean('is_active')
+            )
+        )
+        ->latest()
+        ->paginate(20);
 
-        return UserResource::collection($employees);
-    }
+    return UserResource::collection($employees);
+}
 
     public function store(Request $request)
     {
