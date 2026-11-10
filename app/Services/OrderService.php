@@ -317,26 +317,46 @@ $link = $this->resolveLink(
         return [$lines, round($subtotal, 2)];
     }
 
-    protected function resolveLink(?string $ref, User $customer): ?PromotionalLink
-    {
-        if (!$ref) {
-            return null;
-        }
-
-        $link = $this->linkService->findActive($ref);
-        if (!$link) {
-            return null;
-        }
-
-        $influencer = $link->influencer;
-
-        $valid = $influencer
-            && $influencer->type === 'influencer'
-            && $influencer->is_active
-            && $influencer->id !== $customer->id; // المؤثر ميكسبش من مشترياته
-
-        return $valid ? $link : null;
+ protected function resolveLink(
+    ?string $ref,
+    User $customer,
+    array $orderedProductIds = []
+): ?PromotionalLink {
+    if (!$ref) {
+        return null;
     }
+
+    $link = $this->linkService->findActive($ref);
+
+    if (!$link) {
+        return null;
+    }
+
+    $influencer = $link->influencer;
+
+    $validInfluencer = $influencer
+        && $influencer->type === 'influencer'
+        && $influencer->is_active
+        && $influencer->id !== $customer->id;
+
+    if (!$validInfluencer) {
+        return null;
+    }
+
+    // الرابط الخاص بمنتج لا يُنسب إلا لطلب يحتوي على هذا المنتج.
+    if (
+        $link->product_id !== null
+        && !in_array(
+            (int) $link->product_id,
+            $orderedProductIds,
+            true
+        )
+    ) {
+        return null;
+    }
+
+    return $link;
+}
 
     protected function assertTransitionAllowed(string $from, string $to): void
     {
