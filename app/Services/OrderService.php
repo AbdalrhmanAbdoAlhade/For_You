@@ -70,7 +70,16 @@ class OrderService
             );
 
             $coupon = $pricing['coupon'];
-            $link   = $this->resolveLink($data['ref'] ?? null, $customer);
+            $orderedProductIds = array_map(
+    fn ($line) => (int) $line['product']->id,
+    $lines
+);
+
+$link = $this->resolveLink(
+    $data['ref'] ?? null,
+    $customer,
+    $orderedProductIds
+);
 
             $order = Order::create([
                 'order_number'        => $this->generateOrderNumber(),
