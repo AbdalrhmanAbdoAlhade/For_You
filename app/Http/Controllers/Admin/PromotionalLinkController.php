@@ -45,6 +45,15 @@ class PromotionalLinkController extends Controller
             'expires_at' => 'nullable|date',
         ]);
 
+        if (
+    array_key_exists('product_id', $data)
+    && (int) ($data['product_id'] ?? 0) !== (int) ($link->product_id ?? 0)
+    && $link->orders()->exists()
+) {
+    return response()->json([
+        'message' => 'لا يمكن تغيير المنتج المرتبط برابط تم استخدامه في طلبات سابقة',
+    ], 422);
+}
         $link->update($data);
 
         return response()->json($this->format($link->load(['influencer:id,name', 'product:id,name'])));
