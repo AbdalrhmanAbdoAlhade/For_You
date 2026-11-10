@@ -22,8 +22,8 @@ class CartController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'quantity'   => 'required|integer|min:1',
+            'product_id' => 'required|integer|exists:products,id',
+            'quantity'   => 'required|integer|min:1|max:' . CartService::MAX_QUANTITY,
         ]);
 
         try {
@@ -32,35 +32,35 @@ class CartController extends Controller
                 $data['product_id'],
                 $data['quantity']
             );
-
-            return (new CartResource($cart))->response()->setStatusCode(201);
-        } catch (\Exception $e) {
+        } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        return (new CartResource($cart))->response()->setStatusCode(201);
     }
 
     public function update(Request $request, $itemId)
     {
         $data = $request->validate([
-            'quantity' => 'required|integer|min:0',
+            'quantity' => 'required|integer|min:0|max:' . CartService::MAX_QUANTITY,
         ]);
 
         try {
             $cart = $this->cartService->updateQuantity(
                 $request->user(),
-                $itemId,
+                (int) $itemId,
                 $data['quantity']
             );
-
-            return new CartResource($cart);
-        } catch (\Exception $e) {
+        } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        return new CartResource($cart);
     }
 
     public function destroy(Request $request, $itemId)
     {
-        $cart = $this->cartService->removeItem($request->user(), $itemId);
+        $cart = $this->cartService->removeItem($request->user(), (int) $itemId);
         return new CartResource($cart);
     }
 

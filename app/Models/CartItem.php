@@ -23,8 +23,32 @@ class CartItem extends Model
         return $this->belongsTo(Product::class);
     }
 
+      /** المنتج موجود ونشط؟ (المحذوف soft delete بيرجع null) */
+    public function getIsAvailableAttribute(): bool
+    {
+        return $this->product !== null && $this->product->is_active;
+    }
+
+    /** null = تمام، غير كده سبب المشكلة */
+    public function getIssueAttribute(): ?string
+    {
+        if (!$this->is_available) {
+            return 'unavailable';
+        }
+
+        if ($this->product->stock < $this->quantity) {
+            return 'insufficient_stock';
+        }
+
+        return null;
+    }
+
     public function getTotalAttribute()
     {
+        if (!$this->is_available) {
+            return 0; // العنصر غير المتاح مبيتحسبش في الإجمالي
+        }
+
         $price = $this->product->discount_price ?? $this->product->price;
         return $price * $this->quantity;
     }

@@ -15,8 +15,10 @@ class WithdrawalController extends Controller
 
     public function index(Request $request)
     {
-        $withdrawals = WithdrawalRequest::with(['influencer', 'wallet'])
-            ->when($request->status, fn($q) => $q->where('status', $request->status))
+        $request->validate(['status' => 'nullable|in:pending,approved,rejected,paid']);
+
+        $withdrawals = WithdrawalRequest::with(['influencer:id,name,phone', 'wallet:id,influencer_id,balance'])
+            ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->latest()
             ->paginate(20);
 
@@ -30,20 +32,19 @@ class WithdrawalController extends Controller
             'admin_note' => 'nullable|string',
         ]);
 
-        if ($withdrawal->status !== 'pending') {
-            return response()->json(['message' => 'تمت معالجة هذا الطلب من قبل'], 422);
-        }
-
         try {
-            $this->walletService->processWithdrawal(
+            $withdrawal = $this->walletService->processWithdrawal(
                 $withdrawal,
                 $data['status'],
                 $data['admin_note'] ?? null
             );
-        } catch (\Exception $e) {
+        } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json(['message' => 'تم معالجة طلب السحب بنجاح']);
+        return response()->json([
+            'message'    => 'تم معالجة طلب السحب بنجاح',
+            'withdrawal' => $withdrawal,
+        ]);
     }
 }

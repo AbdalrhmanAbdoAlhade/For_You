@@ -10,10 +10,16 @@ class CartItemResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'       => $this->id,
-            'quantity' => $this->quantity,
-            'total'    => (float) $this->total,
-            'product'  => new ProductResource($this->whenLoaded('product')),
+            'id'              => $this->id,
+            'product_id'      => $this->product_id,
+            'quantity'        => $this->quantity,
+            'total'           => (float) $this->total,
+            'issue'           => $this->issue,                       // null | unavailable | insufficient_stock
+            'available_stock' => $this->product?->stock,
+            // المنتج المحذوف بيرجع null
+            'product'         => $this->relationLoaded('product') && $this->product
+                                    ? new ProductResource($this->product)
+                                    : null,
         ];
     }
 }

@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\PromotionalLink;
 use App\Models\User;
+use App\Models\Coupon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Notifications\OrderStatusUpdated;
@@ -121,6 +122,33 @@ class OrderService
 
             return $order->load(['items', 'payment']);
         });
+    }   
+
+        /**
+     * إلغاء العميل لطلبه: مسموح قبل التأكيد والدفع بس.
+     *
+     * @throws \DomainException
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException لو الطلب مش بتاعه (404)
+     */
+    public function cancelByCustomer(User $customer, int $orderId): Order
+    {
+        return DB::transaction(function () use ($customer, $orderId) {
+
+            $order = Order::where('customer_id', $customer->id)
+                ->whereKey($orderId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($order->status !== 'new') {
+                throw new \DomainException('لا يمكن إلغاء الطلب بعد تأكيده، تواصل مع الدعم');
+            }
+
+            if ($order->payment()->where('status', 'paid')->exists()) {
+                throw new \DomainException('تم دفع الطلب، تواصل مع الدعم لإلغائه واسترداد المبلغ');
+            }
+
+            return $this->updateStatus($order, 'cancelled')->load(['items', 'payment']);
+        });
     }
 
     public function canTransition(string $from, string $to): bool
@@ -158,6 +186,19 @@ class OrderService
             $order->update(['status' => $status]);
             $changed = true;
 
+                        if ($status === 'cancelled') {
+                // نرجّع استخدام الكوبون ونقفل الدفعات المعلقة
+                if ($order->coupon_id) {
+                    Coupon::whereKey($order->coupon_id)
+                        ->where('used_count', '>', 0)
+                        ->decrement('used_count');
+                }
+
+                Payment::where('order_id', $order->id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'failed']);
+            }
+
             if (in_array($status, ['cancelled', 'returned'], true)) {
                 $this->restoreStock($order);
                 $this->commissionService->reverseForOrder($order);
@@ -186,8 +227,9 @@ class OrderService
 
     // ========================= helpers =========================
 
-    /**
+        /**
      * @return array{0: array, 1: float} [الأسطر, المجموع الفرعي]
+     * @throws \DomainException لو منتج غير متاح أو الكمية غير متوفرة
      */
     protected function buildLines(array $items, bool $lock): array
     {
@@ -211,7 +253,9 @@ class OrderService
             $product = $products->get($productId);
 
             if (!$product || !$product->is_active) {
-                throw new \DomainException("المنتج رقم {$productId} غير متاح");
+                // المنتج المحذوف (soft delete) مش بيرجع من الاستعلام، فبنعرض رقمه
+                $label = $product?->name ?? "رقم {$productId}";
+                throw new \DomainException("المنتج {$label} غير متاح");
             }
 
             if ($product->stock < $qty) {

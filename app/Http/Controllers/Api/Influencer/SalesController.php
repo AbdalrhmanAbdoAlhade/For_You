@@ -12,8 +12,8 @@ class SalesController extends Controller
 {
     public function index(Request $request)
     {
-        $request->validate([
-            'status' => 'nullable|string',
+                $request->validate([
+            'status' => 'nullable|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
             'from'   => 'nullable|date',
             'to'     => 'nullable|date|after_or_equal:from',
         ]);

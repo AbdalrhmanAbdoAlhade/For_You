@@ -15,13 +15,18 @@ class WalletController extends Controller
 
     public function show(Request $request)
     {
-        $influencer = $request->user();
-        abort_if($influencer->type !== 'influencer', 403);
+        $wallet = $this->walletService->getOrCreateWallet($request->user()->id);
 
-        $wallet = $this->walletService->getOrCreateWallet($influencer->id);
+        $pending = $this->walletService->pendingWithdrawals($wallet);
 
         return response()->json([
-            'wallet'       => $wallet,
+            'wallet' => [
+                'balance'             => (float) $wallet->balance,
+                'pending_withdrawals' => $pending,
+                'available_balance'   => (float) $wallet->balance - $pending,
+                'total_earned'        => (float) $wallet->total_earned,
+                'total_withdrawn'     => (float) $wallet->total_withdrawn,
+            ],
             'transactions' => $wallet->transactions()->latest()->paginate(20),
         ]);
     }
@@ -29,23 +34,23 @@ class WalletController extends Controller
     public function requestWithdrawal(Request $request)
     {
         $data = $request->validate([
-            'amount'          => 'required|numeric|min:50',
-            'payment_method'  => 'required|string',
-            'account_details' => 'required|string',
+            'amount'          => 'required|numeric|min:' . WalletService::MIN_WITHDRAWAL,
+            'payment_method'  => 'required|string|max:50',
+            'account_details' => 'required|string|max:255',
         ]);
 
         try {
             $withdrawal = $this->walletService->requestWithdrawal(
                 $request->user(),
-                $data['amount'],
+                (float) $data['amount'],
                 $data['payment_method'],
                 $data['account_details']
             );
-
-            return response()->json($withdrawal, 201);
-        } catch (\Exception $e) {
+        } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        return response()->json($withdrawal, 201);
     }
 
     public function myWithdrawals(Request $request)

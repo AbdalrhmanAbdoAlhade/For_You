@@ -19,9 +19,15 @@ class CheckoutController extends Controller
     public function quote(Request $request)
     {
         $data = $request->validate([
+            'address_id'  => 'nullable|integer',
             'coupon_code' => 'nullable|string|max:50',
             'city'        => 'nullable|string|max:100',
         ]);
+
+        // المدينة بتتحدد من العنوان المحفوظ لو اتبعت
+        if (!empty($data['address_id'])) {
+            $data['city'] = $request->user()->addresses()->findOrFail($data['address_id'])->city;
+        }
 
         $data['items'] = $this->cartItems($request);
 
@@ -40,10 +46,11 @@ class CheckoutController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'customer_name'    => 'required|string|max:255',
-            'customer_phone'   => 'required|string|max:30',
+            'address_id'       => 'nullable|integer',
+            'customer_name'    => 'required_without:address_id|nullable|string|max:255',
+            'customer_phone'   => 'required_without:address_id|nullable|string|max:30',
             'customer_email'   => 'nullable|email',
-            'shipping_address' => 'required|string',
+            'shipping_address' => 'required_without:address_id|nullable|string',
             'city'             => 'nullable|string|max:100',
             'country'          => 'nullable|string|max:100',
             'notes'            => 'nullable|string',
@@ -51,6 +58,17 @@ class CheckoutController extends Controller
             'ref'              => 'nullable|string|max:32',
             'payment_method'   => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
         ]);
+
+        // لو العميل اختار عنوان محفوظ، بياناته بتحل محل الحقول اليدوية
+        if (!empty($data['address_id'])) {
+            $address = $request->user()->addresses()->findOrFail($data['address_id']);
+
+            $data['customer_name']    = $address->recipient_name;
+            $data['customer_phone']   = $address->phone;
+            $data['shipping_address'] = $address->address_line;
+            $data['city']             = $address->city;
+            $data['country']          = $address->country;
+        }
 
         $data['items'] = $this->cartItems($request);
 

@@ -59,4 +59,19 @@ class OrderController extends Controller
 
         return response()->json($order);
     }
+
+        public function cancel(Request $request, $id)
+    {
+        try {
+            $order = $this->orderService->cancelByCustomer($request->user(), (int) $id);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'message' => 'تم إلغاء الطلب',
+            'order'   => $order,
+        ]);
+    }
+
 }
