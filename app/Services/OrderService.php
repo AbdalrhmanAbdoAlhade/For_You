@@ -109,7 +109,7 @@ class OrderService
                 $product->decrement('stock', $line['qty']);
             }
 
-            $link?->increment('conversions');
+          
             $coupon?->increment('used_count');
 
             // سجل الدفع (pending لحد ما الأدمن أو البوابة تأكده)
@@ -182,10 +182,27 @@ class OrderService
             }
 
             $this->assertTransitionAllowed($order->status, $status);
+            $previousStatus = $order->status;
 
             $order->update(['status' => $status]);
             $changed = true;
 
+                            // تسجيل التحويل عند اكتمال توصيل الطلب
+                if ($status === 'delivered' && $order->promotional_link_id) {
+                    PromotionalLink::whereKey($order->promotional_link_id)
+                        ->increment('conversions');
+                }
+
+                // استبعاد الطلب المرتجع من التحويلات إذا كان قد وصل بالفعل
+                if (
+                    $status === 'returned'
+                    && $previousStatus === 'delivered'
+                    && $order->promotional_link_id
+                ) {
+                    PromotionalLink::whereKey($order->promotional_link_id)
+                        ->where('conversions', '>', 0)
+                        ->decrement('conversions');
+                }
                         if ($status === 'cancelled') {
                 // نرجّع استخدام الكوبون ونقفل الدفعات المعلقة
                 if ($order->coupon_id) {
