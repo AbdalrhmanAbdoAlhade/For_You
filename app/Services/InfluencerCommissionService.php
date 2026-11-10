@@ -82,12 +82,12 @@ class InfluencerCommissionService
             $linkProductId = $promotionalLink?->product_id;
 
             // العناصر التي سبق إنشاء عمولة لها لا تُكرر.
-            $existingItemIds = InfluencerCommission::query()
-                ->where('order_id', $lockedOrder->id)
-                ->whereNotNull('order_item_id')
-                ->pluck('order_item_id')
-                ->all();
-
+           $existingItemIds = InfluencerCommission::query()
+    ->where('order_id', $lockedOrder->id)
+    ->whereNotNull('order_item_id')
+    ->pluck('order_item_id')
+    ->map(fn ($id) => (int) $id)
+    ->all();
             $created = collect();
 
             foreach ($items as $item) {
