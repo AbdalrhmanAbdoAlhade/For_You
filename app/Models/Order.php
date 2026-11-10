@@ -42,6 +42,7 @@ class Order extends Model
 
       /** الحالات اللي مبتتحسبش مبيعات */
     public const NON_SALE_STATUSES = ['cancelled', 'returned'];
+    public const SALE_STATUSES = ['delivered'];
 
     public function coupon(): BelongsTo
     {
