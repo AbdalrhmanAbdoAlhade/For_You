@@ -7,24 +7,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InfluencerCommission extends Model
 {
-    protected $fillable = [
-        'influencer_id',
-        'order_id',
-        'order_item_id',
-        'product_id',
-        'order_total',
-        'commission_percentage',
-        'commission_amount',
-        'status',
-        'paid_at',
-    ];
+   protected $fillable = [
+    'influencer_id', 'order_id', 'order_item_id', 'product_id',
+    'order_total', 'commission_percentage', 'commission_amount',
+    'status',
+    'available_at',
+    'paid_at',
+];
 
-    protected $casts = [
-        'order_total' => 'decimal:2',
-        'commission_percentage' => 'decimal:2',
-        'commission_amount' => 'decimal:2',
-        'paid_at' => 'datetime',
-    ];
+protected $casts = [
+    'available_at' => 'datetime',
+    'order_total' => 'decimal:2',
+    'commission_percentage' => 'decimal:2',
+    'commission_amount' => 'decimal:2',
+    'paid_at' => 'datetime',
+];
 
         /** العمولات اللي اتكسبت فعلاً */
     public const EARNED_STATUSES = ['approved', 'paid'];
