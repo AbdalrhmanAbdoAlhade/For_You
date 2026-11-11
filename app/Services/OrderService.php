@@ -117,7 +117,7 @@ $link = $this->resolveLink(
                 OrderItem::create([
                     'order_id'       => $order->id,
                     'product_id'     => $product->id,
-                    'product_name'   => $product->name,
+                     'product_name' => $product->localized('name'),
                     'price'          => $product->price,
                     'discount_price' => $product->discount_price,
                     'quantity'       => $line['qty'],
