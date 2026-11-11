@@ -176,6 +176,128 @@ $created->push($commission);
         });
     }
 
+protected function holdDays(): int
+{
+    return max(0, (int) config('services.influencer.commission_hold_days', 7));
+}
+
+/**
+ * توزيع خصم الطلب على الأصناف بالتناسب (بالقروش، مع توزيع الباقي)
+ * بحيث مجموع الحصص = الخصم بالظبط.
+ *
+ * @return array<int, float> [order_item_id => discount share]
+ */
+protected function allocateDiscount(Collection $items, float $discount): array
+{
+    $discountCents = (int) round($discount * 100);
+    $totals = [];
+
+    foreach ($items as $item) {
+        $totals[$item->id] = (int) round(((float) $item->total) * 100);
+    }
+
+    $baseCents = array_sum($totals);
+
+    if ($discountCents <= 0 || $baseCents <= 0) {
+        return [];
+    }
+
+    $discountCents = min($discountCents, $baseCents);
+
+    $shares = [];
+    $remainders = [];
+    $allocated = 0;
+
+    foreach ($totals as $id => $cents) {
+        $raw = ($cents * $discountCents) / $baseCents;
+        $floor = (int) floor($raw);
+
+        $shares[$id] = $floor;
+        $remainders[$id] = $raw - $floor;
+        $allocated += $floor;
+    }
+
+    $left = $discountCents - $allocated;
+
+    arsort($remainders);
+
+    foreach (array_keys($remainders) as $id) {
+        if ($left <= 0) {
+            break;
+        }
+
+        $shares[$id]++;
+        $left--;
+    }
+
+    return array_map(fn (int $cents) => $cents / 100, $shares);
+}
+
+/**
+ * إتاحة كل العمولات المعلّقة اللي انتهت فترة انتظارها.
+ */
+public function releaseDue(): int
+{
+    $released = 0;
+
+    InfluencerCommission::query()
+        ->where('status', 'pending')
+        ->whereNotNull('available_at')
+        ->where('available_at', '<=', now())
+        ->orderBy('id')
+        ->chunkById(100, function ($chunk) use (&$released) {
+            foreach ($chunk as $commission) {
+                try {
+                    if ($this->release($commission)) {
+                        $released++;
+                    }
+                } catch (\Throwable $e) {
+                    report($e); // فشل عمولة واحدة ما يوقفش الباقي
+                }
+            }
+        });
+
+    return $released;
+}
+
+/**
+ * إتاحة عمولة واحدة: تتحول approved وتدخل المحفظة،
+ * بشرط إن الطلب لسه delivered.
+ */
+public function release(InfluencerCommission $commission): bool
+{
+    return DB::transaction(function () use ($commission) {
+        // نفس ترتيب القفل في reverseForOrder: الطلب أولًا ثم العمولة.
+        $order = Order::whereKey($commission->order_id)
+            ->lockForUpdate()
+            ->first();
+
+        $locked = InfluencerCommission::whereKey($commission->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$locked || $locked->status !== 'pending') {
+            return false;
+        }
+
+        if (!$order || $order->status !== 'delivered') {
+            return false;
+        }
+
+        $locked->update(['status' => 'approved']);
+
+        if ((float) $locked->commission_amount > 0) {
+            $this->addToWallet(
+                (int) $locked->influencer_id,
+                (float) $locked->commission_amount,
+                (int) $locked->order_id
+            );
+        }
+
+        return true;
+    });
+}
+    
     /**
      * إضافة العمولة إلى محفظة المؤثر وتسجيل الحركة المالية.
      */
