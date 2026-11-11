@@ -98,31 +98,37 @@ class InfluencerController extends Controller
         return response()->json(['message' => 'تم حذف المؤثر بنجاح']);
     }
 
-    public function attachProducts(Request $request, User $influencer)
-    {
-        abort_if($influencer->type !== 'influencer', 404);
+   public function attachProducts(Request $request, User $influencer)
+{
+    abort_if($influencer->type !== 'influencer', 404);
 
-        $data = $request->validate([
-            'products' => 'required|array',
-            'products.*.product_id' => 'required|exists:products,id',
-            'products.*.commission_percentage' => 'nullable|numeric|min:0|max:100',
-        ]);
+    $data = $request->validate([
+        'products' => 'required|array|min:1',
+        'products.*.product_id' => 'required|integer|distinct|exists:products,id',
+        'products.*.commission_percentage' => 'nullable|numeric|min:0|max:100',
+    ]);
 
-        $syncData = [];
-        foreach ($data['products'] as $item) {
-            $syncData[$item['product_id']] = [
-                'commission_percentage' => $item['commission_percentage'] ?? config('services.influencer.default_commission', 10),
-                'is_active' => true,
-            ];
+    $attach = [];
+    foreach ($data['products'] as $item) {
+        $pivot = ['is_active' => true];
+
+        // النسبة بتتكتب بس لو اتبعتت (null صريحة = استخدم الافتراضي).
+        // لو مش مبعوتة: المنتج الجديد بياخد null، والمربوط قبل كده بتفضل نسبته زي ما هي.
+        if (array_key_exists('commission_percentage', $item)) {
+            $pivot['commission_percentage'] = $item['commission_percentage'];
         }
 
-        $influencer->influencerProducts()->sync($syncData);
-
-        return response()->json([
-            'message' => 'تم ربط المنتجات بالمؤثر بنجاح',
-            'products' => $influencer->influencerProducts,
-        ]);
+        $attach[$item['product_id']] = $pivot;
     }
+
+    // إضافة/تعديل من غير ما نفصل باقي المنتجات
+    $influencer->influencerProducts()->syncWithoutDetaching($attach);
+
+    return response()->json([
+        'message'  => 'تم ربط المنتجات بالمؤثر بنجاح',
+        'products' => $influencer->influencerProducts()->get(),
+    ]);
+}
 
     public function generateLink(Request $request, User $influencer)
     {
