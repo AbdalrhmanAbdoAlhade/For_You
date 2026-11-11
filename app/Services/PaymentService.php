@@ -159,50 +159,45 @@ class PaymentService
     }
 
     public function markRefunded(
-        Payment $payment,
-        ?array $gatewayResponse = null
-    ): Payment {
-        return $this->transition(
-            $payment,
-            'paid',
-            'refunded',
-            'يمكن استرداد الدفعات المؤكدة فقط',
-            $gatewayResponse
-        );
-    }
+    Payment $payment,
+    ?array $gatewayResponse = null
+): Payment {
+    return DB::transaction(function () use ($payment, $gatewayResponse) {
+        // نفس ترتيب القفل: الطلب ثم الدفعة.
+        $order = Order::whereKey($payment->order_id)
+            ->lockForUpdate()
+            ->firstOrFail();
 
-    protected function transition(
-        Payment $payment,
-        string $from,
-        string $to,
-        string $error,
-        ?array $gatewayResponse
-    ): Payment {
-        return DB::transaction(function () use (
-            $payment,
-            $from,
-            $to,
-            $error,
-            $gatewayResponse
-        ) {
-            $payment = Payment::whereKey($payment->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+        $payment = Payment::whereKey($payment->id)
+            ->lockForUpdate()
+            ->firstOrFail();
 
-            if ($payment->status === $to) {
-                return $payment;
-            }
+        if ($payment->status === 'refunded') {
+            return $payment;
+        }
 
-            if ($payment->status !== $from) {
-                throw new \DomainException($error);
-            }
+        if ($payment->status !== 'paid') {
+            throw new \DomainException('يمكن استرداد الدفعات المؤكدة فقط');
+        }
 
-            $payment->update([
-                'status' => $to,
-                'gateway_response' => $gatewayResponse ?? $payment->gateway_response,
-            ]);
+        $payment->update([
+            'status' => 'refunded',
+            'gateway_response' => $gatewayResponse ?? $payment->gateway_response,
+        ]);
 
-            return $payment->fresh();
-        });
-    }
+        // قبل الشحن = إلغاء، بعد الشحن = مرتجع. OrderService بيرجّع
+        // المخزون والكوبون ويعكس العمولات (المعلّقة تتلغي والمتاحة تتخصم).
+        if (!in_array($order->status, ['cancelled', 'returned'], true)) {
+            $target = in_array($order->status, ['shipped', 'delivered'], true)
+                ? 'returned'
+                : 'cancelled';
+
+            $this->orderService->updateStatus($order, $target);
+        }
+
+        return $payment->fresh();
+    });
+}
+
+  
 }
