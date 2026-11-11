@@ -13,6 +13,11 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
+    'influencer' => [
+    'default_commission' => env('INFLUENCER_DEFAULT_COMMISSION', 10),
+    // أيام الانتظار بعد التسليم قبل ما العمولة تدخل المحفظة (0 = فورًا)
+    'commission_hold_days' => (int) env('INFLUENCER_COMMISSION_HOLD_DAYS', 7),
+],
     'google' => [
     'client_id'     => env('GOOGLE_CLIENT_ID'),
     'client_secret' => env('GOOGLE_CLIENT_SECRET'),
