@@ -32,4 +32,11 @@ class OrderStatusUpdated extends Notification
     'type'         => 'order_status',
 ];
     }
+    protected function message(string $locale): string
+{
+    return __('orders.status_updated', [
+        'number' => $this->order->order_number,
+        'status' => __('orders.statuses.' . $this->order->status, [], $locale),
+    ], $locale);
+}
 }
