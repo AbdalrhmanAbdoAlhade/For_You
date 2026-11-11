@@ -17,9 +17,9 @@ class ProductController extends Controller
             ->when($request->search, function ($q) use ($request) {
                 // لازم نجمّع الـ orWhere جوه where واحدة، وإلا بتكسر باقي الفلاتر (is_active والقسم)
                 $q->where(function ($q) use ($request) {
-                    $q->where('name', 'like', "%{$request->search}%")
-                      ->orWhere('description', 'like', "%{$request->search}%");
-                        ->orWhere('name_en', 'like', "%{$request->search}%")
+                   $q->where('name', 'like', "%{$request->search}%")
+                       ->orWhere('description', 'like', "%{$request->search}%")
+                       ->orWhere('name_en', 'like', "%{$request->search}%");
                 });
             })
               
