@@ -54,7 +54,16 @@ class OrderService
             'coupon_code'   => $pricing['coupon']?->code,
         ];
     }
+public function isRefApplicable(User $customer, ?string $ref, array $items): bool
+{
+    if (!$ref) {
+        return false;
+    }
 
+    $ids = array_map(fn ($i) => (int) $i['product_id'], $items);
+
+    return $this->resolveLink($ref, $customer, $ids) !== null;
+}
     public function createOrder(User $customer, array $data): Order
     {
         return DB::transaction(function () use ($customer, $data) {
