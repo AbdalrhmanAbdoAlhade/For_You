@@ -23,10 +23,15 @@ class AddressController extends Controller
         $user = $request->user();
 
         if ($user->addresses()->count() >= self::MAX_ADDRESSES) {
-            return response()->json(
-                ['message' => 'وصلت للحد الأقصى من العناوين (' . self::MAX_ADDRESSES . ')'],
-                422
-            );
+          
+return response()->json(
+    [
+        'message' => __('وصلت للحد الأقصى من العناوين (:max)', [
+            'max' => self::MAX_ADDRESSES,
+        ]),
+    ],
+    422
+);
         }
 
         $address = DB::transaction(function () use ($user, $data) {
