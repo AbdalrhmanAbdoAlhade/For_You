@@ -77,14 +77,13 @@ class FileUploadService
     /**
      * Delete an uploaded file.
      */
-    public function delete(?string $path): void
-    {
-        if (!$path) {
-            return;
-        }
+  public function delete(?string $path): void
+{
+    if (!$path) return;
 
-        $relativePath = str_replace('/storage/', '', $path);
+    $relative = parse_url($path, PHP_URL_PATH) ?: $path;
+    $relative = ltrim(preg_replace('#^/?storage/#', '', $relative), '/');
 
-        Storage::disk('public')->delete($relativePath);
-    }
+    Storage::disk('public')->delete($relative);
+}
 }
