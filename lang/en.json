@@ -1,4 +1,5 @@
 {
+    "لا يمكن تغيير حالة طلب ملغي أو مرتجع": "The status of a cancelled or returned order cannot be changed"
     "تم حذف البانر": "Banner deleted",
     "تم حذف القسم بنجاح": "Category deleted successfully",
     "الكوبون مستخدم بالفعل، عطّله بدل الحذف": "This coupon has already been used; deactivate it instead of deleting",
