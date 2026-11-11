@@ -40,6 +40,8 @@ class BannerController extends Controller
             'is_active'   => 'boolean',
             'starts_at'   => 'nullable|date',
             'ends_at'     => 'nullable|date|after_or_equal:starts_at',
+            'title_en'       => 'nullable|string|max:255',
+              'subtitle_en'    => 'nullable|string|max:255',                      
         ]);
 
         $data['image'] = $this->fileUploadService->upload($request->file('image'), 'banners');
@@ -60,6 +62,8 @@ class BannerController extends Controller
             'is_active'   => 'boolean',
             'starts_at'   => 'nullable|date',
             'ends_at'     => 'nullable|date|after_or_equal:starts_at',
+               'title_en'       => 'nullable|string|max:255',
+              'subtitle_en'    => 'nullable|string|max:255',                        
         ]);
 
         if ($request->hasFile('image')) {
