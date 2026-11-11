@@ -17,18 +17,23 @@ class WalletController extends Controller
     {
         $wallet = $this->walletService->getOrCreateWallet($request->user()->id);
 
-        $pending = $this->walletService->pendingWithdrawals($wallet);
+$pending = $this->walletService->pendingWithdrawals($wallet);
 
-        return response()->json([
-            'wallet' => [
-                'balance'             => (float) $wallet->balance,
-                'pending_withdrawals' => $pending,
-                'available_balance'   => (float) $wallet->balance - $pending,
-                'total_earned'        => (float) $wallet->total_earned,
-                'total_withdrawn'     => (float) $wallet->total_withdrawn,
-            ],
-            'transactions' => $wallet->transactions()->latest()->paginate(20),
-        ]);
+// عمولات لسه في فترة الانتظار (مش داخلة في الرصيد ولا قابلة للسحب).
+$held = $request->user()->commissions()->where('status', 'pending');
+
+return response()->json([
+    'wallet' => [
+        'held_commissions'    => round((float) (clone $held)->sum('commission_amount'), 2),
+        'next_release_at'     => (clone $held)->min('available_at'),
+        'balance'             => (float) $wallet->balance,
+        'pending_withdrawals' => $pending,
+        'available_balance'   => (float) $wallet->balance - $pending,
+        'total_earned'        => (float) $wallet->total_earned,
+        'total_withdrawn'     => (float) $wallet->total_withdrawn,
+    ],
+    'transactions' => $wallet->transactions()->latest()->paginate(20),
+]);
     }
 
     public function requestWithdrawal(Request $request)
