@@ -74,6 +74,14 @@ class RolesAndPermissionsSeeder extends Seeder
 
             // ========== Dashboard ==========
             ['name' => 'View Dashboard',    'slug' => 'dashboard.view',    'group' => 'dashboard'],
+            ['name' => 'View Banners',   'slug' => 'banners.view',   'group' => 'banners'],
+            ['name' => 'Create Banners', 'slug' => 'banners.create', 'group' => 'banners'],
+            ['name' => 'Edit Banners',   'slug' => 'banners.edit',   'group' => 'banners'],
+            ['name' => 'Delete Banners', 'slug' => 'banners.delete', 'group' => 'banners'],
+            ['name' => 'View Coupons',   'slug' => 'coupons.view',   'group' => 'coupons'],
+            ['name' => 'Create Coupons', 'slug' => 'coupons.create', 'group' => 'coupons'],
+            ['name' => 'Edit Coupons',   'slug' => 'coupons.edit',   'group' => 'coupons'],
+            ['name' => 'Delete Coupons', 'slug' => 'coupons.delete', 'group' => 'coupons'],
         ];
 
         foreach ($permissions as $permission) {
