@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Services;
@@ -34,6 +35,12 @@ class WalletService
             ->sum('amount');
     }
 
+    /**
+     * إنشاء طلب سحب جديد.
+     *
+     * لا يُسمح بالسحب إذا كان الرصيد صفرًا أو بالسالب.
+     * يتم احتساب المبالغ المحجوزة قبل السماح بالسحب.
+     */
     public function requestWithdrawal(
         User $influencer,
         float $amount,
@@ -42,15 +49,13 @@ class WalletService
     ): WithdrawalRequest {
         $amount = round($amount, 2);
 
-       
-if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
-    throw new \DomainException(
-        __('الحد الأدنى للسحب هو :amount ج.م', [
-            'amount' => self::MIN_WITHDRAWAL,
-        ])
-    );
-}
-
+        if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
+            throw new \DomainException(
+                __('الحد الأدنى للسحب هو :amount ج.م', [
+                    'amount' => self::MIN_WITHDRAWAL,
+                ])
+            );
+        }
 
         return DB::transaction(function () use (
             $influencer,
@@ -60,10 +65,19 @@ if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
         ) {
             $wallet = $this->getOrCreateWallet($influencer->id);
 
+            // قفل المحفظة لمنع عمليات السحب المتزامنة.
             $wallet = InfluencerWallet::whereKey($wallet->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            // منع السحب عند وجود مديونية أو عدم وجود رصيد موجب.
+            if ((float) $wallet->balance <= 0) {
+                throw new \DomainException(
+                    'لا يمكنك طلب سحب بسبب وجود مديونية أو عدم وجود رصيد موجب في محفظتك.'
+                );
+            }
+
+            // حساب المبالغ المحجوزة في طلبات السحب الحالية.
             $reserved = $this->pendingWithdrawals($wallet);
 
             $available = round(
@@ -71,9 +85,9 @@ if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
                 2
             );
 
-            if ($amount > $available) {
+            if ($available <= 0 || $amount > $available) {
                 throw new \DomainException(
-                    'الرصيد المتاح للسحب غير كافٍ بعد خصم المبالغ المحجوزة'
+                    'الرصيد المتاح للسحب غير كافٍ بعد خصم المبالغ المحجوزة.'
                 );
             }
 
@@ -108,11 +122,12 @@ if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
             $status,
             $adminNote
         ) {
+            // قفل طلب السحب لمنع تنفيذ نفس العملية أكثر من مرة.
             $request = WithdrawalRequest::whereKey($request->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Idempotency: لا نكرر تنفيذ نفس الانتقال.
+            // منع تكرار نفس الانتقال.
             if ($request->status === $status) {
                 return $request;
             }
@@ -123,24 +138,23 @@ if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
                 default => [],
             };
 
-         
-if (!in_array($status, $allowed, true)) {
-    throw new \DomainException(
-        __('لا يمكن نقل طلب السحب من (:from) إلى (:to)', [
-            'from' => $request->status,
-            'to'   => $status,
-        ])
-    );
-}
+            if (!in_array($status, $allowed, true)) {
+                throw new \DomainException(
+                    __('لا يمكن نقل طلب السحب من (:from) إلى (:to)', [
+                        'from' => $request->status,
+                        'to' => $status,
+                    ])
+                );
+            }
 
-
+            // قفل المحفظة قبل أي تعديل مالي.
             $wallet = InfluencerWallet::whereKey($request->wallet_id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             if ((int) $wallet->influencer_id !== (int) $request->influencer_id) {
                 throw new \DomainException(
-                    'المحفظة غير مطابقة لصاحب طلب السحب'
+                    'المحفظة غير مطابقة لصاحب طلب السحب.'
                 );
             }
 
@@ -148,9 +162,17 @@ if (!in_array($status, $allowed, true)) {
             if ($status === 'paid') {
                 $amount = round((float) $request->amount, 2);
 
+                // منع تنفيذ السحب إذا أصبحت المحفظة مدينة.
+                if ((float) $wallet->balance <= 0) {
+                    throw new \DomainException(
+                        'لا يمكن تنفيذ السحب بسبب وجود مديونية على المؤثر.'
+                    );
+                }
+
+                // التأكد من كفاية الرصيد قبل الخصم.
                 if ((float) $wallet->balance < $amount) {
                     throw new \DomainException(
-                        'رصيد المحفظة غير كافٍ لتنفيذ السحب'
+                        'رصيد المحفظة غير كافٍ لتنفيذ السحب.'
                     );
                 }
 
@@ -177,6 +199,7 @@ if (!in_array($status, $allowed, true)) {
                 ]);
             }
 
+            // تحديث حالة طلب السحب.
             $request->update([
                 'status' => $status,
                 'admin_note' => $adminNote ?? $request->admin_note,
