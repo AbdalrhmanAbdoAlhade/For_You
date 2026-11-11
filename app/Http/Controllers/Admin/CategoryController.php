@@ -28,8 +28,10 @@ public function __construct(
  public function store(Request $request)
 {
     $data = $request->validate([
+        'name_en'        => 'nullable|string|max:255',                       
         'name'        => 'required|string|max:255',
         'description' => 'nullable|string',
+         'description_en' => 'nullable|string',                      
         'image'       => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         'parent_id'   => 'nullable|exists:categories,id',
         'sort_order'  => 'nullable|integer',
@@ -58,6 +60,8 @@ public function __construct(
        public function update(Request $request, Category $category)
     {
         $data = $request->validate([
+             'name_en'        => 'sometimes|string|max:255', 
+             'description_en' => 'nullable|string',                         
             'name'        => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'image'       => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
