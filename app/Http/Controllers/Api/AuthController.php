@@ -28,8 +28,10 @@ class AuthController extends Controller
     ]);
 
     $user = User::create([
-        ...$data,
-        'password' => $data['password'],
+        'name'     => $data['name'],
+        'email'    => $data['email'],
+        'phone'    => $data['phone'] ?? null,
+        'password' => $data['password'], // الـ cast 'hashed' في الـ Model هيعمل الـ Hash
         'type'     => 'customer',
     ]);
 
@@ -40,6 +42,7 @@ class AuthController extends Controller
         'token' => $token,
     ], 201);
 }
+
 
     public function login(Request $request)
     {
