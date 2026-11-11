@@ -19,8 +19,10 @@ class ProductController extends Controller
                 $q->where(function ($q) use ($request) {
                     $q->where('name', 'like', "%{$request->search}%")
                       ->orWhere('description', 'like', "%{$request->search}%");
+                        ->orWhere('name_en', 'like', "%{$request->search}%")
                 });
             })
+              
             ->when($request->featured, fn($q) => $q->featured())
             ->when($request->min_price, fn($q) => $q->where('price', '>=', $request->min_price))
             ->when($request->max_price, fn($q) => $q->where('price', '<=', $request->max_price))
