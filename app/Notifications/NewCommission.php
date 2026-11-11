@@ -22,8 +22,10 @@ class NewCommission extends Notification
     public function toArray(object $notifiable): array
     {
         return [
-            'title'    => 'عمولة جديدة',
-            'message'  => "تم إضافة عمولة بقيمة {$this->totalAmount} ج.م إلى محفظتك",
+          'title'      => __('orders.commission_title', [], 'ar'),
+            'title_en'   => __('orders.commission_title', [], 'en'),
+            'message'    => __('orders.commission_added', ['amount' => $this->totalAmount], 'ar'),
+            'message_en' => __('orders.commission_added', ['amount' => $this->totalAmount], 'en'),
             'amount'   => $this->totalAmount,
             'order_id' => $this->orderId,
             'type'     => 'new_commission',
