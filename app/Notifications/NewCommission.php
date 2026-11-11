@@ -26,7 +26,7 @@ class NewCommission extends Notification
             'title_en'   => __('orders.commission_title', [], 'en'),
             'message'    => __('orders.commission_added', ['amount' => $this->totalAmount], 'ar'),
             'message_en' => __('orders.commission_added', ['amount' => $this->totalAmount], 'en'),
-            'amount' => number_format($this->totalAmount, 2)
+            'amount' => number_format($this->totalAmount, 2),
             'order_id' => $this->orderId,
             'type'     => 'new_commission',
         ];
