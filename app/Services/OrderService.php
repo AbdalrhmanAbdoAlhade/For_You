@@ -304,17 +304,28 @@ $link = $this->resolveLink(
         foreach ($quantities as $productId => $qty) {
             $product = $products->get($productId);
 
-            if (!$product || !$product->is_active) {
-                // المنتج المحذوف (soft delete) مش بيرجع من الاستعلام، فبنعرض رقمه
-                $label = $product?->name ?? "رقم {$productId}";
-                throw new \DomainException("المنتج {$label} غير متاح");
-            }
+           
+if (!$product || !$product->is_active) {
+    // المنتج المحذوف Soft Delete لا يظهر في الاستعلام العادي.
+    $label = $product?->localized('name')
+        ?? __('رقم :id', ['id' => $productId]);
 
-            if ($product->stock < $qty) {
-                throw new \DomainException(
-                    "الكمية المطلوبة من \"{$product->name}\" غير متوفرة (المتاح: {$product->stock})"
-                );
-            }
+    throw new \DomainException(
+        __('المنتج :label غير متاح', [
+            'label' => $label,
+        ])
+    );
+}
+
+if ($product->stock < $qty) {
+    throw new \DomainException(
+        __('الكمية المطلوبة من ":name" غير متوفرة (المتاح: :stock)', [
+            'name'  => $product->localized('name'),
+            'stock' => $product->stock,
+        ])
+    );
+}
+
 
             $unitPrice = (float) ($product->discount_price ?? $product->price);
             $lineTotal = round($unitPrice * $qty, 2);
