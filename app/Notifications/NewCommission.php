@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Notifications;
@@ -11,7 +12,8 @@ class NewCommission extends Notification
 
     public function __construct(
         public int $orderId,
-        public float $totalAmount
+        public float $totalAmount,
+        public ?string $availableAt = null
     ) {}
 
     public function via(object $notifiable): array
@@ -21,14 +23,35 @@ class NewCommission extends Notification
 
     public function toArray(object $notifiable): array
     {
+        $isPending = $this->availableAt !== null;
+
         return [
-          'title'      => __('orders.commission_title', [], 'ar'),
-            'title_en'   => __('orders.commission_title', [], 'en'),
-            'message'    => __('orders.commission_added', ['amount' => $this->totalAmount], 'ar'),
-            'message_en' => __('orders.commission_added', ['amount' => $this->totalAmount], 'en'),
+            'title' => __('orders.commission_title', [], 'ar'),
+            'title_en' => __('orders.commission_title', [], 'en'),
+
+            'message' => $isPending
+                ? __('orders.commission_pending', [
+                    'amount' => number_format($this->totalAmount, 2),
+                    'date' => $this->availableAt,
+                ], 'ar')
+                : __('orders.commission_added', [
+                    'amount' => number_format($this->totalAmount, 2),
+                ], 'ar'),
+
+            'message_en' => $isPending
+                ? __('orders.commission_pending', [
+                    'amount' => number_format($this->totalAmount, 2),
+                    'date' => $this->availableAt,
+                ], 'en')
+                : __('orders.commission_added', [
+                    'amount' => number_format($this->totalAmount, 2),
+                ], 'en'),
+
             'amount' => number_format($this->totalAmount, 2),
             'order_id' => $this->orderId,
-            'type'     => 'new_commission',
+            'available_at' => $this->availableAt,
+            'status' => $isPending ? 'pending' : 'approved',
+            'type' => 'new_commission',
         ];
     }
 }
