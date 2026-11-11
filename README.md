@@ -1,58 +1,116 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+✨ Overview (نظرة عامة)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+For You هو Backend API مبني بـ Laravel يجمع بين متجر إلكتروني متكامل ونظام تسويق بالعمولة (Influencer Marketing).
 
-## About Laravel
+يتيح النظام للمؤثرين التسويق للمنتجات ومتابعة أرباحهم عبر محافظ إلكترونية، مع توفير آليات حماية وإدارة دقيقة للعمولات، إضافةً إلى لوحة تحكم وإدارة كاملة للمحتوى والصلاحيات.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+⚡ Key Features (المميزات الرئيسية)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+🛒 للعملاء (Customers)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Authentication: تسجيل بدعم Email + Apple Sign-In.
 
-## Learning Laravel
+Catalog: تصفح المنتجات والتصنيفات والعروض.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+Cart & Coupons: سلة مشتريات ديناميكية وكوبونات خصم.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Orders: عناوين متعددة وتتبع الطلبات وتأكيدها.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+📣 للمؤثرين (Influencers)
 
-## Agentic Development
+Dashboard: لوحة تحكم وتتبع النقرات والتحويلات.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Affiliate Links: روابط ترويجية قابلة للتتبع.
 
-```bash
-composer require laravel/boost --dev
+Holding Period: فترة حجز حماية للعمولة (افتراضي 7 أيام).
 
-php artisan boost:install
-```
+Wallet & Payouts: محفظة إلكترونية وطلبات سحب للأرباح.
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+🛡️ للإدارة (Admin)
 
-## Contributing
+Roles & Permissions: نظام صلاحيات وأدوار مرن.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Catalog Management: إدارة المنتجات والتصنيفات.
 
-## Code of Conduct
+Influencers Control: ربط المؤثرين ونسب العمولات.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Finance & Payouts: موافقة على السحب وتقارير المبيعات.
 
-## Security Vulnerabilities
+🧰 Tech Stack (التقنيات المستخدمة)
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+🔐 Commission System Logic (نظام العمولات)
 
-## License
+graph TD
+    A[العميل يشتري عبر رابط المؤثر] --> B[تغيير حالة الطلب إلى Delivered]
+    B --> C[إنشاء العمولة بحالة Pending]
+    C --> D{انقضاء فترة الحجز - 7 أيام}
+    D -->|تمت الفترة| E[تحويل الحالة إلى Approved وإيداع الأرباح]
+    D -->|إلغاء / إرجاع| F[عكس العمولة - دعم الرصيد السالب]
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+🧱 Directory Structure (هيكل المشروع)
+
+app/
+├── Http/Controllers/
+│   ├── Api/             # Endpoints العملاء والمؤثرين
+│   └── Admin/           # Endpoints لوحة الإدارة
+├── Models/              # User, Product, Order, Wallet, Commission...
+├── Services/            # Business Logic (Order, Wallet, Commission...)
+├── Middleware/          # Auth & Role checks
+└── Notifications/       # System & Email Notifications
+
+database/migrations/     # Database Tables Architecture
+routes/api.php           # REST API Endpoints
+
+
+🚀 Installation & Setup (التثبيت والتشغيل)
+
+# 1. Clone the repository
+git clone https://github.com/AbdalrhmanAbdoAlhade/For_You.git
+cd For_You
+
+# 2. Install dependencies
+composer install
+
+# 3. Environment configuration
+cp .env.example .env
+php artisan key:generate
+
+# 4. Configure Database in .env and run migrations
+php artisan migrate
+
+# 5. Run local server
+php artisan serve
+
+
+Scheduled Tasks (المهام المجدولة)
+
+# Run scheduler
+php artisan schedule:work
+
+# Release matured commissions
+php artisan commissions:release
+
+# Expire unpaid orders
+php artisan orders:expire-unpaid
+
+
+👤 Developer Profile (عن المطور)
+
+Abdalrhman AbdoAlhade
+
+Senior Back-End Systems Engineer
+
+🏗️ 50+ live production environments.
+
+🌍 Serving MENA: KSA, Egypt, Kuwait, Oman, Turkey, Syria.
+
+🤖 AI Integration: Gemini AI & LangChain.
+
+🛠️ Tech: PHP (Laravel), Go, Python, Multi-tenant SaaS, Payments.
+
+📬 Connect with me
+
+📄 License
+
+هذا المشروع مرخص تحت رخصة MIT.
