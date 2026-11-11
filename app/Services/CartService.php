@@ -89,18 +89,28 @@ class CartService
     /**
      * @throws \DomainException
      */
-    protected function assertAvailable(?Product $product, int $quantity): void
-    {
-        if (!$product || !$product->is_active) {
-            throw new \DomainException('هذا المنتج غير متاح حالياً');
-        }
 
-        if ($quantity > self::MAX_QUANTITY) {
-            throw new \DomainException('الحد الأقصى للكمية من المنتج الواحد هو ' . self::MAX_QUANTITY);
-        }
-
-        if ($product->stock < $quantity) {
-            throw new \DomainException("الكمية المطلوبة غير متوفرة في المخزون (المتاح: {$product->stock})");
-        }
+protected function assertAvailable(?Product $product, int $quantity): void
+{
+    if (!$product || !$product->is_active) {
+        throw new \DomainException(__('هذا المنتج غير متاح حالياً'));
     }
+
+    if ($quantity > self::MAX_QUANTITY) {
+        throw new \DomainException(
+            __('الحد الأقصى للكمية من المنتج الواحد هو :max', [
+                'max' => self::MAX_QUANTITY,
+            ])
+        );
+    }
+
+    if ($product->stock < $quantity) {
+        throw new \DomainException(
+            __('الكمية المطلوبة غير متوفرة في المخزون (المتاح: :stock)', [
+                'stock' => $product->stock,
+            ])
+        );
+    }
+}
+
 }
