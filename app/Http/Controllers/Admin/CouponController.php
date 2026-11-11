@@ -95,7 +95,7 @@ class CouponController extends Controller
     protected function assertPercentLimit(string $type, float $value): void
     {
         if ($type === 'percent' && $value > 100) {
-            throw ValidationException::withMessages(['value' => 'النسبة لا يمكن أن تتجاوز 100']);
+            throw ValidationException::withMessages(['value' => __('النسبة لا يمكن أن تتجاوز 100')]);
         }
     }
 }
