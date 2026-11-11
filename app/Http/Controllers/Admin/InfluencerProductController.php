@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\PromotionalLink;
 use App\Models\User;
+use App\Services\InfluencerCommissionService;
 use Illuminate\Http\Request;
 
 class InfluencerProductController extends Controller
@@ -17,7 +18,7 @@ class InfluencerProductController extends Controller
             'influencer_id'         => $u->id,
             'name'                  => $u->name,
             'account_active'        => $u->is_active,
-            'commission_percentage' => (float) $u->pivot->commission_percentage,
+            'commission_percentage' => InfluencerCommissionService::resolvePercentage($u->pivot->commission_percentage),
             'is_active'             => (bool) $u->pivot->is_active,
         ]);
 
@@ -97,10 +98,10 @@ class InfluencerProductController extends Controller
             );
         }
 
+        // null = النسبة الافتراضية (بتتحسب وقت العرض والتسوية، فتغيير الافتراضي بيسري على الكل)
         $influencer->influencerProducts()->attach($product->id, [
-            'commission_percentage' => $data['commission_percentage']
-                ?? config('services.influencer.default_commission', 10),
-            'is_active' => $data['is_active'] ?? true,
+            'commission_percentage' => $data['commission_percentage'] ?? null,
+            'is_active'             => $data['is_active'] ?? true,
         ]);
 
         return response()->json([
@@ -121,7 +122,7 @@ class InfluencerProductController extends Controller
         return [
             'influencer_id'         => $influencer->id,
             'product_id'            => $product->id,
-            'commission_percentage' => (float) $p->pivot->commission_percentage,
+            'commission_percentage' => InfluencerCommissionService::resolvePercentage($p->pivot->commission_percentage),
             'is_active'             => (bool) $p->pivot->is_active,
         ];
     }
