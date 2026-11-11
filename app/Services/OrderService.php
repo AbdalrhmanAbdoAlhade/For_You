@@ -395,7 +395,14 @@ if ($product->stock < $qty) {
         };
 
         if (!$allowed) {
-            throw new \DomainException("لا يمكن نقل الطلب من الحالة ({$from}) إلى ({$to})");
+           
+throw new \DomainException(
+    __('لا يمكن نقل الطلب من الحالة (:from) إلى (:to)', [
+        'from' => $from,
+        'to'   => $to,
+    ])
+);
+
         }
     }
 
