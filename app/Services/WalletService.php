@@ -42,11 +42,15 @@ class WalletService
     ): WithdrawalRequest {
         $amount = round($amount, 2);
 
-        if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
-            throw new \DomainException(
-                'الحد الأدنى للسحب هو ' . self::MIN_WITHDRAWAL . ' ج.م'
-            );
-        }
+       
+if (!is_finite($amount) || $amount < self::MIN_WITHDRAWAL) {
+    throw new \DomainException(
+        __('الحد الأدنى للسحب هو :amount ج.م', [
+            'amount' => self::MIN_WITHDRAWAL,
+        ])
+    );
+}
+
 
         return DB::transaction(function () use (
             $influencer,
@@ -119,11 +123,16 @@ class WalletService
                 default => [],
             };
 
-            if (!in_array($status, $allowed, true)) {
-                throw new \DomainException(
-                    "لا يمكن نقل طلب السحب من ({$request->status}) إلى ({$status})"
-                );
-            }
+         
+if (!in_array($status, $allowed, true)) {
+    throw new \DomainException(
+        __('لا يمكن نقل طلب السحب من (:from) إلى (:to)', [
+            'from' => $request->status,
+            'to'   => $status,
+        ])
+    );
+}
+
 
             $wallet = InfluencerWallet::whereKey($request->wallet_id)
                 ->lockForUpdate()
