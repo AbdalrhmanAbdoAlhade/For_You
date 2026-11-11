@@ -398,32 +398,31 @@ public function reverseForOrder(Order $order): void
             );
         }
 
-        $balanceBefore = (float) $wallet->balance;
+// قد يصبح الرصيد سالباً إذا سبق للمؤثر سحب العمولة.
+$balanceBefore = (float) $wallet->balance;
 
-        // نخصم المبلغ كاملاً حتى لو أصبح الرصيد سالباً (دين)
-        $wallet->balance = round($balanceBefore - $approvedTotal, 2);
+$wallet->balance = round($balanceBefore - $approvedTotal, 2);
 
-        // total_earned ما ينزلش تحت الصفر
-        $wallet->total_earned = round(
-            max(0, (float) $wallet->total_earned - $approvedTotal),
-            2
-        );
+$wallet->total_earned = round(
+    max(0, (float) $wallet->total_earned - $approvedTotal),
+    2
+);
 
-        $wallet->save();
+$wallet->save();
 
-        $description = $wallet->balance < 0
-            ? "عكس عمولة الطلب #{$lockedOrder->id} (رصيد سالب / دين)"
-            : "عكس عمولة الطلب #{$lockedOrder->id}";
+$description = $wallet->balance < 0
+    ? "عكس عمولة الطلب #{$lockedOrder->id} (رصيد سالب / مديونية)"
+    : "عكس عمولة الطلب #{$lockedOrder->id}";
 
-        WalletTransaction::create([
-            'wallet_id'     => $wallet->id,
-            'order_id'      => $lockedOrder->id,
-            'type'          => 'debit',
-            'amount'        => $approvedTotal,
-            'balance_after' => $wallet->balance,
-            'description'   => $description,
-            'status'        => 'completed',
-        ]);
+WalletTransaction::create([
+    'wallet_id'     => $wallet->id,
+    'order_id'      => $lockedOrder->id,
+    'type'          => 'debit',
+    'amount'        => $approvedTotal,
+    'balance_after' => $wallet->balance,
+    'description'   => $description,
+    'status'        => 'completed',
+]);
     });
 }
 }
