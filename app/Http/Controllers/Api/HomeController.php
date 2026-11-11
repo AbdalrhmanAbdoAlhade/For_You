@@ -19,9 +19,15 @@ class HomeController extends Controller
             ->get();
 
         return response()->json([
-            'banners' => Banner::active()
-                ->orderBy('sort_order')
-                ->get(['id', 'title', 'subtitle', 'image', 'link_url', 'product_id', 'category_id']),
+           'banners' => Banner::active()->orderBy('sort_order')->get()->map(fn (Banner $b) => [
+    'id'          => $b->id,
+    'title'       => $b->localized('title'),
+    'subtitle'    => $b->localized('subtitle'),
+    'image'       => $b->image,
+    'link_url'    => $b->link_url,
+    'product_id'  => $b->product_id,
+    'category_id' => $b->category_id,
+]),
 
             'categories'       => CategoryResource::collection($categories),
             'featured'         => ProductResource::collection($this->base()->featured()->latest()->take(12)->get()),
