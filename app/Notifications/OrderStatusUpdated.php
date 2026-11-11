@@ -21,13 +21,15 @@ class OrderStatusUpdated extends Notification
 
     public function toArray(object $notifiable): array
     {
-        return [
-            'title'        => 'تحديث حالة الطلب',
-            'message'      => "تم تحديث حالة طلبك رقم {$this->order->order_number} إلى: {$this->order->status}",
-            'order_id'     => $this->order->id,
-            'order_number' => $this->order->order_number,
-            'status'       => $this->order->status,
-            'type'         => 'order_status',
-        ];
+       return [
+    'title'        => __('orders.status_updated_title', [], 'ar'),
+    'title_en'     => __('orders.status_updated_title', [], 'en'),
+    'message'      => $this->message('ar'),
+    'message_en'   => $this->message('en'),
+    'order_id'     => $this->order->id,
+    'order_number' => $this->order->order_number,
+    'status'       => $this->order->status,
+    'type'         => 'order_status',
+];
     }
 }
