@@ -139,29 +139,37 @@ $created = collect();
                     );
                 }
 
-                $commissionAmount = round(
-                    ($itemTotal * $percentage) / 100,
-                    2
-                );
+              // العمولة على صافي الصنف بعد خصم نصيبه من كوبون الطلب، وبدون الشحن.
+$netTotal = round(
+    max(0, $itemTotal - ($discountShares[$item->id] ?? 0)),
+    2
+);
 
-                $commission = InfluencerCommission::create([
-                    'influencer_id'         => $lockedOrder->influencer_id,
-                    'order_id'              => $lockedOrder->id,
-                    'order_item_id'         => $item->id,
-                    'product_id'            => $item->product_id,
-                    'order_total'           => $itemTotal,
-                    'commission_percentage' => $percentage,
-                    'commission_amount'     => $commissionAmount,
-                    'status'                => 'approved',
-                ]);
+$commissionAmount = round(($netTotal * $percentage) / 100, 2);
 
-                $this->addToWallet(
-                    (int) $lockedOrder->influencer_id,
-                    $commissionAmount,
-                    (int) $lockedOrder->id
-                );
+$commission = InfluencerCommission::create([
+    'influencer_id'         => $lockedOrder->influencer_id,
+    'order_id'              => $lockedOrder->id,
+    'order_item_id'         => $item->id,
+    'product_id'            => $item->product_id,
+    'order_total'           => $netTotal,
+    'commission_percentage' => $percentage,
+    'commission_amount'     => $commissionAmount,
+    'status'                => $holdDays > 0 ? 'pending' : 'approved',
+    'available_at'          => $holdDays > 0 ? now()->addDays($holdDays) : null,
+]);
 
-                $created->push($commission);
+// مع فترة انتظار العمولة مش بتدخل المحفظة دلوقتي،
+// وإنما عند releaseDue بعد انتهاء الفترة.
+if ($holdDays === 0 && $commissionAmount > 0) {
+    $this->addToWallet(
+        (int) $lockedOrder->influencer_id,
+        $commissionAmount,
+        (int) $lockedOrder->id
+    );
+}
+
+$created->push($commission);
             }
 
             return $created;
