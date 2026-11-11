@@ -4,12 +4,25 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Concerns\HasLocalizedAttributes;
 
 class Banner extends Model
 {
+    use HasLocalizedAttributes;
+
     protected $fillable = [
-        'title', 'subtitle', 'image', 'link_url', 'product_id', 'category_id',
-        'sort_order', 'is_active', 'starts_at', 'ends_at',
+        'title',
+        'title_en',
+        'subtitle',
+        'subtitle_en',
+        'image',
+        'link_url',
+        'product_id',
+        'category_id',
+        'sort_order',
+        'is_active',
+        'starts_at',
+        'ends_at',
     ];
 
     protected $casts = [
