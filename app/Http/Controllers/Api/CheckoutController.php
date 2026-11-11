@@ -16,32 +16,53 @@ class CheckoutController extends Controller
     ) {}
 
     /** يحسب الإجمالي والشحن والخصم من غير ما ينشئ طلب */
-    public function quote(Request $request)
-    {
-        $data = $request->validate([
-            'address_id'  => 'nullable|integer',
-            'coupon_code' => 'nullable|string|max:50',
-            'city'        => 'nullable|string|max:100',
-        ]);
+  public function quote(Request $request)
+{
+    $data = $request->validate([
+        'address_id'  => 'nullable|integer',
+        'coupon_code' => 'nullable|string|max:50',
+        'city'        => 'nullable|string|max:100',
+        'ref'         => 'nullable|string|max:32',
+    ]);
 
-        // المدينة بتتحدد من العنوان المحفوظ لو اتبعت
-        if (!empty($data['address_id'])) {
-            $data['city'] = $request->user()->addresses()->findOrFail($data['address_id'])->city;
-        }
-
-        $data['items'] = $this->cartItems($request);
-
-        if (empty($data['items'])) {
-            return response()->json(['message' => 'السلة فارغة'], 422);
-        }
-
-        try {
-            return response()->json($this->orderService->quote($request->user(), $data));
-        } catch (\DomainException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
+    // تحديد المدينة من العنوان المحفوظ إذا تم إرسال address_id
+    if (!empty($data['address_id'])) {
+        $data['city'] = $request->user()
+            ->addresses()
+            ->findOrFail($data['address_id'])
+            ->city;
     }
 
+    $data['items'] = $this->cartItems($request);
+
+    if (empty($data['items'])) {
+        return response()->json([
+            'message' => 'السلة فارغة',
+        ], 422);
+    }
+
+    try {
+        $quote = $this->orderService->quote(
+            $request->user(),
+            $data
+        );
+
+        if (!empty($data['ref'])) {
+            $quote['ref_applied'] = $this->orderService->isRefApplicable(
+                $request->user(),
+                $data['ref'],
+                $data['items']
+            );
+        }
+
+        return response()->json($quote);
+
+    } catch (\DomainException $e) {
+        return response()->json([
+            'message' => $e->getMessage(),
+        ], 422);
+    }
+}
     /** ينشئ الطلب من السلة ويفضيها */
     public function store(Request $request)
     {
@@ -87,7 +108,10 @@ class CheckoutController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json($order, 201);
+        return response()->json(
+    $order->toArray() + ['ref_applied' => $order->promotional_link_id !== null],
+    201
+);
     }
 
     protected function cartItems(Request $request): array
