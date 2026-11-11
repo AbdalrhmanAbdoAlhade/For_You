@@ -87,7 +87,16 @@ class InfluencerCommissionService
     ->pluck('order_item_id')
     ->map(fn ($id) => (int) $id)
     ->all();
-            $created = collect();
+            // توزيع خصم الكوبون على كل أصناف الطلب بالتناسب.
+$discountShares = $this->allocateDiscount(
+    $items,
+    (float) $lockedOrder->discount
+);
+
+$holdDays = $this->holdDays();
+
+$created = collect();
+          
 
             foreach ($items as $item) {
                 if (!$item->product_id) {
