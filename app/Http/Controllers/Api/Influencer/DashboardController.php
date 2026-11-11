@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Influencer;
 use App\Http\Controllers\Controller;
 use App\Models\InfluencerCommission;
 use App\Models\Order;
+use App\Services\InfluencerCommissionService;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -69,7 +70,7 @@ class DashboardController extends Controller
                 'final_price'           => (float) $p->final_price,
                 'images'                => $p->images ?? [],
                 'is_active'             => $p->is_active,
-                'commission_percentage' => (float) $p->pivot->commission_percentage,
+                'commission_percentage' => InfluencerCommissionService::resolvePercentage($p->pivot->commission_percentage),
             ]);
 
         return response()->json([
