@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Influencer;
 
 use App\Http\Controllers\Controller;
+use App\Services\InfluencerCommissionService;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
@@ -21,7 +22,7 @@ class ProductController extends Controller
                 'images'                => $p->images ?? [],
                 'category'              => $p->category?->name,
                 'is_active'             => $p->is_active,
-                'commission_percentage' => (float) $p->pivot->commission_percentage,
+                'commission_percentage' => InfluencerCommissionService::resolvePercentage($p->pivot->commission_percentage),
             ]);
 
         return response()->json($products);
@@ -35,7 +36,7 @@ class ProductController extends Controller
             ->map(fn ($p) => [
                 'product_id'            => $p->id,
                 'name'                  => $p->name,
-                'commission_percentage' => (float) $p->pivot->commission_percentage,
+                'commission_percentage' => InfluencerCommissionService::resolvePercentage($p->pivot->commission_percentage),
             ]);
 
         return response()->json([
