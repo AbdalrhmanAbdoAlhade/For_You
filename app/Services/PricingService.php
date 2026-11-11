@@ -66,9 +66,18 @@ class PricingService
         if ($coupon->usage_limit !== null && $coupon->used_count >= $coupon->usage_limit) {
             throw new \DomainException('تم استنفاد كود الخصم');
         }
-        if ($coupon->min_order_amount !== null && $subtotal < (float) $coupon->min_order_amount) {
-            throw new \DomainException("الحد الأدنى للطلب لاستخدام الكود هو {$coupon->min_order_amount}");
-        }
+        
+if (
+    $coupon->min_order_amount !== null
+    && $subtotal < (float) $coupon->min_order_amount
+) {
+    throw new \DomainException(
+        __('الحد الأدنى للطلب لاستخدام الكود هو :amount', [
+            'amount' => $coupon->min_order_amount,
+        ])
+    );
+}
+
         if ($coupon->per_user_limit !== null) {
             $used = Order::where('customer_id', $customer->id)
                 ->where('coupon_id', $coupon->id)
