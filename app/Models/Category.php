@@ -6,15 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Concerns\HasLocalizedAttributes;
 
 class Category extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasLocalizedAttributes;
 
     protected $fillable = [
         'name',
+        'name_en',
         'slug',
         'description',
+        'description_en',
         'image',
         'sort_order',
         'is_active',
