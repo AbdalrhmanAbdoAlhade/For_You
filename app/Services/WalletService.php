@@ -76,19 +76,26 @@ class WalletService
                 );
             }
 
-            // حساب المبالغ المحجوزة في طلبات السحب الحالية.
-            $reserved = $this->pendingWithdrawals($wallet);
+          $reserved = $this->pendingWithdrawals($wallet);
 
-           $available = round((float) $wallet->balance - $reserved, 2);
+$available = round(
+    (float) $wallet->balance - $reserved,
+    2
+);
 
-if ($available <= 0 || $amount > $available) {
+if ($available <= 0) {
     throw new \DomainException(
-        $available <= 0
-            ? 'لا يمكن السحب، الرصيد غير متاح أو يوجد مديونية'
-            : 'الرصيد المتاح للسحب غير كافٍ بعد خصم المبالغ المحجوزة'
+        (float) $wallet->balance < 0
+            ? 'لا يمكن السحب، يوجد مديونية على المحفظة'
+            : 'لا يمكن السحب، الرصيد غير متاح حالياً'
     );
 }
 
+if ($amount > $available) {
+    throw new \DomainException(
+        'الرصيد المتاح للسحب غير كافٍ بعد خصم المبالغ المحجوزة'
+    );
+}
             return WithdrawalRequest::create([
                 'influencer_id' => $influencer->id,
                 'wallet_id' => $wallet->id,
