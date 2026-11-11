@@ -343,92 +343,87 @@ class InfluencerCommissionService
         ]);
     }
 
-    /**
-     * عكس العمولات عند إلغاء الطلب أو إرجاعه.
-     *
-     * العمولات المدفوعة لا يتم عكسها تلقائياً؛
-     * تحتاج إلى سياسة تسوية مستقلة.
-     */
-    public function reverseForOrder(Order $order): void
-    {
-        if (!$order->influencer_id) {
+  /**
+ * عكس العمولات عند إلغاء الطلب أو إرجاعه.
+ *
+ * - العمولات pending: تُلغى فقط (لم تدخل المحفظة بعد).
+ * - العمولات approved: تُخصم من المحفظة.
+ * - لو الرصيد غير كافٍ: يصبح سالباً (دين على المؤثر) ويُسجَّل في الحركة.
+ */
+public function reverseForOrder(Order $order): void
+{
+    if (!$order->influencer_id) {
+        return;
+    }
+
+    DB::transaction(function () use ($order) {
+        $lockedOrder = Order::whereKey($order->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $commissions = InfluencerCommission::query()
+            ->where('order_id', $lockedOrder->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->lockForUpdate()
+            ->get();
+
+        if ($commissions->isEmpty()) {
             return;
         }
 
-        DB::transaction(function () use ($order) {
-            $lockedOrder = Order::whereKey($order->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+        // المبلغ الذي دخل المحفظة فعلاً (approved فقط)
+        $approvedTotal = round(
+            (float) $commissions
+                ->where('status', 'approved')
+                ->sum('commission_amount'),
+            2
+        );
 
-            $commissions = InfluencerCommission::query()
-                ->where('order_id', $lockedOrder->id)
-                ->whereIn('status', ['pending', 'approved'])
-                ->lockForUpdate()
-                ->get();
+        // نلغي كل العمولات أولاً
+        foreach ($commissions as $commission) {
+            $commission->update(['status' => 'cancelled']);
+        }
 
-            if ($commissions->isEmpty()) {
-                return;
-            }
+        if ($approvedTotal <= 0) {
+            return;
+        }
 
-            // نعكس المبالغ التي سبق اعتمادها وإضافتها للمحفظة فقط.
-            $approvedTotal = round(
-                (float) $commissions
-                    ->where('status', 'approved')
-                    ->sum('commission_amount'),
-                2
+        $wallet = InfluencerWallet::where('influencer_id', $lockedOrder->influencer_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$wallet) {
+            throw new RuntimeException(
+                "محفظة المؤثر غير موجودة للطلب رقم {$lockedOrder->id}"
             );
+        }
 
-            $wallet = null;
+        $balanceBefore = (float) $wallet->balance;
 
-            if ($approvedTotal > 0) {
-                $wallet = InfluencerWallet::where(
-                    'influencer_id',
-                    $lockedOrder->influencer_id
-                )
-                    ->lockForUpdate()
-                    ->first();
+        // نخصم المبلغ كاملاً حتى لو أصبح الرصيد سالباً (دين)
+        $wallet->balance = round($balanceBefore - $approvedTotal, 2);
 
-                if (!$wallet) {
-                    // فشل العملية بالكامل بدلاً من إلغاء العمولات
-                    // دون تسجيل الخصم المقابل في المحفظة.
-                    throw new RuntimeException(
-                        "محفظة المؤثر غير موجودة للطلب رقم {$lockedOrder->id}"
-                    );
-                }
-            }
+        // total_earned ما ينزلش تحت الصفر
+        $wallet->total_earned = round(
+            max(0, (float) $wallet->total_earned - $approvedTotal),
+            2
+        );
 
-            foreach ($commissions as $commission) {
-                $commission->update([
-                    'status' => 'cancelled',
-                ]);
-            }
+        $wallet->save();
 
-            if ($approvedTotal <= 0 || !$wallet) {
-                return;
-            }
+        $description = $wallet->balance < 0
+            ? "عكس عمولة الطلب #{$lockedOrder->id} (رصيد سالب / دين)"
+            : "عكس عمولة الطلب #{$lockedOrder->id}";
 
-            // قد يصبح الرصيد سالباً إذا سبق للمؤثر سحب العمولة.
-            $wallet->balance = round(
-                (float) $wallet->balance - $approvedTotal,
-                2
-            );
-
-            $wallet->total_earned = round(
-                max(0, (float) $wallet->total_earned - $approvedTotal),
-                2
-            );
-
-            $wallet->save();
-
-            WalletTransaction::create([
-                'wallet_id'     => $wallet->id,
-                'order_id'      => $lockedOrder->id,
-                'type'          => 'debit',
-                'amount'        => $approvedTotal,
-                'balance_after' => $wallet->balance,
-                'description'   => "عكس عمولة الطلب #{$lockedOrder->id}",
-                'status'        => 'completed',
-            ]);
-        });
-    }
+        WalletTransaction::create([
+            'wallet_id'     => $wallet->id,
+            'order_id'      => $lockedOrder->id,
+            'type'          => 'debit',
+            'amount'        => $approvedTotal,
+            'balance_after' => $wallet->balance,
+            'description'   => $description,
+            'status'        => 'completed',
+        ]);
+    });
+}
 }
