@@ -11,10 +11,10 @@ class ProductResource extends JsonResource
     {
         return [
             'id'                => $this->id,
-            'name'              => $this->name,
+            'name'              => $this->localized('name'),
             'slug'              => $this->slug,
-            'description'       => $this->description,
-            'short_description' => $this->short_description,
+            'description'       => $this->localized('description'),
+            'short_description' => $this->localized('short_description'),
             'price'             => (float) $this->price,
             'discount_price'    => $this->discount_price ? (float) $this->discount_price : null,
             'final_price'       => (float) $this->final_price,
