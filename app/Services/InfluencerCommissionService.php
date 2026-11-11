@@ -13,12 +13,14 @@ use RuntimeException;
 class InfluencerCommissionService
 {
     /**
-     * النسبة الافتراضية، وتُستخدم فقط للمنتجات المرتبطة
-     * بالمؤثر عندما لا تكون لها نسبة خاصة.
+     * نسبة العمولة الفعلية: النسبة الخاصة بالمنتج لو موجودة،
+     * وإلا النسبة الافتراضية من الإعدادات (null في الـ pivot = الافتراضي).
      */
-    protected function defaultPercentage(): float
+    public static function resolvePercentage(mixed $pivotValue): float
     {
-        return (float) config('services.influencer.default_commission', 10);
+        return $pivotValue !== null
+            ? (float) $pivotValue
+            : (float) config('services.influencer.default_commission', 10);
     }
 
     /**
@@ -81,22 +83,22 @@ class InfluencerCommissionService
             $linkProductId = $promotionalLink?->product_id;
 
             // العناصر التي سبق إنشاء عمولة لها لا تُكرر.
-           $existingItemIds = InfluencerCommission::query()
-    ->where('order_id', $lockedOrder->id)
-    ->whereNotNull('order_item_id')
-    ->pluck('order_item_id')
-    ->map(fn ($id) => (int) $id)
-    ->all();
+            $existingItemIds = InfluencerCommission::query()
+                ->where('order_id', $lockedOrder->id)
+                ->whereNotNull('order_item_id')
+                ->pluck('order_item_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
             // توزيع خصم الكوبون على كل أصناف الطلب بالتناسب.
-$discountShares = $this->allocateDiscount(
-    $items,
-    (float) $lockedOrder->discount
-);
+            $discountShares = $this->allocateDiscount(
+                $items,
+                (float) $lockedOrder->discount
+            );
 
-$holdDays = $this->holdDays();
+            $holdDays = $this->holdDays();
 
-$created = collect();
-          
+            $created = collect();
 
             foreach ($items as $item) {
                 if (!$item->product_id) {
@@ -121,9 +123,7 @@ $created = collect();
                     continue;
                 }
 
-                $percentage = $pivot->commission_percentage !== null
-                    ? (float) $pivot->commission_percentage
-                    : $this->defaultPercentage();
+                $percentage = self::resolvePercentage($pivot->commission_percentage);
 
                 if ($percentage < 0 || $percentage > 100) {
                     throw new RuntimeException(
@@ -139,165 +139,165 @@ $created = collect();
                     );
                 }
 
-              // العمولة على صافي الصنف بعد خصم نصيبه من كوبون الطلب، وبدون الشحن.
-$netTotal = round(
-    max(0, $itemTotal - ($discountShares[$item->id] ?? 0)),
-    2
-);
+                // العمولة على صافي الصنف بعد خصم نصيبه من كوبون الطلب، وبدون الشحن.
+                $netTotal = round(
+                    max(0, $itemTotal - ($discountShares[$item->id] ?? 0)),
+                    2
+                );
 
-$commissionAmount = round(($netTotal * $percentage) / 100, 2);
+                $commissionAmount = round(($netTotal * $percentage) / 100, 2);
 
-$commission = InfluencerCommission::create([
-    'influencer_id'         => $lockedOrder->influencer_id,
-    'order_id'              => $lockedOrder->id,
-    'order_item_id'         => $item->id,
-    'product_id'            => $item->product_id,
-    'order_total'           => $netTotal,
-    'commission_percentage' => $percentage,
-    'commission_amount'     => $commissionAmount,
-    'status'                => $holdDays > 0 ? 'pending' : 'approved',
-    'available_at'          => $holdDays > 0 ? now()->addDays($holdDays) : null,
-]);
+                $commission = InfluencerCommission::create([
+                    'influencer_id'         => $lockedOrder->influencer_id,
+                    'order_id'              => $lockedOrder->id,
+                    'order_item_id'         => $item->id,
+                    'product_id'            => $item->product_id,
+                    'order_total'           => $netTotal,
+                    'commission_percentage' => $percentage,
+                    'commission_amount'     => $commissionAmount,
+                    'status'                => $holdDays > 0 ? 'pending' : 'approved',
+                    'available_at'          => $holdDays > 0 ? now()->addDays($holdDays) : null,
+                ]);
 
-// مع فترة انتظار العمولة مش بتدخل المحفظة دلوقتي،
-// وإنما عند releaseDue بعد انتهاء الفترة.
-if ($holdDays === 0 && $commissionAmount > 0) {
-    $this->addToWallet(
-        (int) $lockedOrder->influencer_id,
-        $commissionAmount,
-        (int) $lockedOrder->id
-    );
-}
+                // مع فترة انتظار العمولة مش بتدخل المحفظة دلوقتي،
+                // وإنما عند releaseDue بعد انتهاء الفترة.
+                if ($holdDays === 0 && $commissionAmount > 0) {
+                    $this->addToWallet(
+                        (int) $lockedOrder->influencer_id,
+                        $commissionAmount,
+                        (int) $lockedOrder->id
+                    );
+                }
 
-$created->push($commission);
+                $created->push($commission);
             }
 
             return $created;
         });
     }
 
-protected function holdDays(): int
-{
-    return max(0, (int) config('services.influencer.commission_hold_days', 7));
-}
-
-/**
- * توزيع خصم الطلب على الأصناف بالتناسب (بالقروش، مع توزيع الباقي)
- * بحيث مجموع الحصص = الخصم بالظبط.
- *
- * @return array<int, float> [order_item_id => discount share]
- */
-protected function allocateDiscount(Collection $items, float $discount): array
-{
-    $discountCents = (int) round($discount * 100);
-    $totals = [];
-
-    foreach ($items as $item) {
-        $totals[$item->id] = (int) round(((float) $item->total) * 100);
+    protected function holdDays(): int
+    {
+        return max(0, (int) config('services.influencer.commission_hold_days', 7));
     }
 
-    $baseCents = array_sum($totals);
+    /**
+     * توزيع خصم الطلب على الأصناف بالتناسب (بالقروش، مع توزيع الباقي)
+     * بحيث مجموع الحصص = الخصم بالظبط.
+     *
+     * @return array<int, float> [order_item_id => discount share]
+     */
+    protected function allocateDiscount(Collection $items, float $discount): array
+    {
+        $discountCents = (int) round($discount * 100);
+        $totals = [];
 
-    if ($discountCents <= 0 || $baseCents <= 0) {
-        return [];
-    }
-
-    $discountCents = min($discountCents, $baseCents);
-
-    $shares = [];
-    $remainders = [];
-    $allocated = 0;
-
-    foreach ($totals as $id => $cents) {
-        $raw = ($cents * $discountCents) / $baseCents;
-        $floor = (int) floor($raw);
-
-        $shares[$id] = $floor;
-        $remainders[$id] = $raw - $floor;
-        $allocated += $floor;
-    }
-
-    $left = $discountCents - $allocated;
-
-    arsort($remainders);
-
-    foreach (array_keys($remainders) as $id) {
-        if ($left <= 0) {
-            break;
+        foreach ($items as $item) {
+            $totals[$item->id] = (int) round(((float) $item->total) * 100);
         }
 
-        $shares[$id]++;
-        $left--;
-    }
+        $baseCents = array_sum($totals);
 
-    return array_map(fn (int $cents) => $cents / 100, $shares);
-}
+        if ($discountCents <= 0 || $baseCents <= 0) {
+            return [];
+        }
 
-/**
- * إتاحة كل العمولات المعلّقة اللي انتهت فترة انتظارها.
- */
-public function releaseDue(): int
-{
-    $released = 0;
+        $discountCents = min($discountCents, $baseCents);
 
-    InfluencerCommission::query()
-        ->where('status', 'pending')
-        ->whereNotNull('available_at')
-        ->where('available_at', '<=', now())
-        ->orderBy('id')
-        ->chunkById(100, function ($chunk) use (&$released) {
-            foreach ($chunk as $commission) {
-                try {
-                    if ($this->release($commission)) {
-                        $released++;
-                    }
-                } catch (\Throwable $e) {
-                    report($e); // فشل عمولة واحدة ما يوقفش الباقي
-                }
+        $shares = [];
+        $remainders = [];
+        $allocated = 0;
+
+        foreach ($totals as $id => $cents) {
+            $raw = ($cents * $discountCents) / $baseCents;
+            $floor = (int) floor($raw);
+
+            $shares[$id] = $floor;
+            $remainders[$id] = $raw - $floor;
+            $allocated += $floor;
+        }
+
+        $left = $discountCents - $allocated;
+
+        arsort($remainders);
+
+        foreach (array_keys($remainders) as $id) {
+            if ($left <= 0) {
+                break;
             }
+
+            $shares[$id]++;
+            $left--;
+        }
+
+        return array_map(fn (int $cents) => $cents / 100, $shares);
+    }
+
+    /**
+     * إتاحة كل العمولات المعلّقة اللي انتهت فترة انتظارها.
+     */
+    public function releaseDue(): int
+    {
+        $released = 0;
+
+        InfluencerCommission::query()
+            ->where('status', 'pending')
+            ->whereNotNull('available_at')
+            ->where('available_at', '<=', now())
+            ->orderBy('id')
+            ->chunkById(100, function ($chunk) use (&$released) {
+                foreach ($chunk as $commission) {
+                    try {
+                        if ($this->release($commission)) {
+                            $released++;
+                        }
+                    } catch (\Throwable $e) {
+                        report($e); // فشل عمولة واحدة ما يوقفش الباقي
+                    }
+                }
+            });
+
+        return $released;
+    }
+
+    /**
+     * إتاحة عمولة واحدة: تتحول approved وتدخل المحفظة،
+     * بشرط إن الطلب لسه delivered.
+     */
+    public function release(InfluencerCommission $commission): bool
+    {
+        return DB::transaction(function () use ($commission) {
+            // نفس ترتيب القفل في reverseForOrder: الطلب أولًا ثم العمولة.
+            $order = Order::whereKey($commission->order_id)
+                ->lockForUpdate()
+                ->first();
+
+            $locked = InfluencerCommission::whereKey($commission->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$locked || $locked->status !== 'pending') {
+                return false;
+            }
+
+            if (!$order || $order->status !== 'delivered') {
+                return false;
+            }
+
+            $locked->update(['status' => 'approved']);
+
+            if ((float) $locked->commission_amount > 0) {
+                $this->addToWallet(
+                    (int) $locked->influencer_id,
+                    (float) $locked->commission_amount,
+                    (int) $locked->order_id
+                );
+            }
+
+            return true;
         });
+    }
 
-    return $released;
-}
-
-/**
- * إتاحة عمولة واحدة: تتحول approved وتدخل المحفظة،
- * بشرط إن الطلب لسه delivered.
- */
-public function release(InfluencerCommission $commission): bool
-{
-    return DB::transaction(function () use ($commission) {
-        // نفس ترتيب القفل في reverseForOrder: الطلب أولًا ثم العمولة.
-        $order = Order::whereKey($commission->order_id)
-            ->lockForUpdate()
-            ->first();
-
-        $locked = InfluencerCommission::whereKey($commission->id)
-            ->lockForUpdate()
-            ->first();
-
-        if (!$locked || $locked->status !== 'pending') {
-            return false;
-        }
-
-        if (!$order || $order->status !== 'delivered') {
-            return false;
-        }
-
-        $locked->update(['status' => 'approved']);
-
-        if ((float) $locked->commission_amount > 0) {
-            $this->addToWallet(
-                (int) $locked->influencer_id,
-                (float) $locked->commission_amount,
-                (int) $locked->order_id
-            );
-        }
-
-        return true;
-    });
-}
-    
     /**
      * إضافة العمولة إلى محفظة المؤثر وتسجيل الحركة المالية.
      */
