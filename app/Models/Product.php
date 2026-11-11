@@ -7,17 +7,21 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Concerns\HasLocalizedAttributes;
 
 class Product extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasLocalizedAttributes;
 
     protected $fillable = [
         'category_id',
         'name',
+        'name_en',
         'slug',
         'description',
+        'description_en',
         'short_description',
+        'short_description_en',
         'price',
         'discount_price',
         'stock',
