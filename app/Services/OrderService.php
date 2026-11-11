@@ -42,7 +42,7 @@ class OrderService
         return [
             'items' => array_map(fn ($l) => [
                 'product_id' => $l['product']->id,
-                'name'       => $l['product']->name,
+                'name'       => $l['product']->localized('name'),
                 'quantity'   => $l['qty'],
                 'unit_price' => $l['unitPrice'],
                 'line_total' => $l['lineTotal'],
