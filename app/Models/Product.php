@@ -61,9 +61,9 @@ class Product extends Model
         return $this->hasMany(PromotionalLink::class);
     }
 
-    public function getFinalPriceAttribute()
+       public function getFinalPriceAttribute()
     {
-        return $this->discount_price ?? $this->price;
+        return $this->effective_price;
     }
 
      /**
