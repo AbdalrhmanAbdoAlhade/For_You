@@ -107,25 +107,29 @@ if ($amount > $available) {
         });
     }
 
-    /**
+       /**
      * دورة السحب:
      *
-     * pending  -> approved | rejected | paid
+     * pending  -> approved | rejected
      * approved -> paid | rejected
      *
-     * approved: حجز فقط.
-     * paid: خصم نهائي وتسجيل حركة مالية.
+     * approved: حجز فقط (بيتسجل مين وافق).
+     * paid: خصم نهائي بعد التحويل الفعلي (بيتسجل مين دفع + رقم العملية).
      * rejected: تحرير الحجز دون خصم.
      */
     public function processWithdrawal(
         WithdrawalRequest $request,
         string $status,
-        ?string $adminNote = null
+        User $actor,
+        ?string $adminNote = null,
+        ?string $transferReference = null
     ): WithdrawalRequest {
         return DB::transaction(function () use (
             $request,
             $status,
-            $adminNote
+            $actor,
+            $adminNote,
+            $transferReference
         ) {
             // قفل طلب السحب لمنع تنفيذ نفس العملية أكثر من مرة.
             $request = WithdrawalRequest::whereKey($request->id)
@@ -138,17 +142,28 @@ if ($amount > $available) {
             }
 
             $allowed = match ($request->status) {
-                'pending' => ['approved', 'rejected', 'paid'],
+                'pending'  => ['approved', 'rejected'],
                 'approved' => ['paid', 'rejected'],
-                default => [],
+                default    => [],
             };
 
             if (!in_array($status, $allowed, true)) {
                 throw new \DomainException(
                     __('لا يمكن نقل طلب السحب من (:from) إلى (:to)', [
                         'from' => $request->status,
-                        'to' => $status,
+                        'to'   => $status,
                     ])
+                );
+            }
+
+            // مبدأ الشخصين: اللي وافق مينفذش التحويل بنفسه
+            if (
+                $status === 'paid'
+                && config('store.withdrawal_four_eyes', true)
+                && (int) $request->approved_by === (int) $actor->id
+            ) {
+                throw new \DomainException(
+                    'لازم شخص تاني غير اللي وافق على الطلب ينفّذ التحويل'
                 );
             }
 
@@ -163,8 +178,24 @@ if ($amount > $available) {
                 );
             }
 
+            $updates = [
+                'status'       => $status,
+                'admin_note'   => $adminNote ?? $request->admin_note,
+                'processed_by' => $actor->id,
+                'processed_at' => now(),
+            ];
+
+            if ($status === 'approved') {
+                $updates['approved_by'] = $actor->id;
+                $updates['approved_at'] = now();
+            }
+
             // الخصم يحدث فقط عند إثبات التحويل الفعلي.
             if ($status === 'paid') {
+                if (!$transferReference) {
+                    throw new \DomainException('رقم عملية التحويل مطلوب');
+                }
+
                 $amount = round((float) $request->amount, 2);
 
                 // منع تنفيذ السحب إذا أصبحت المحفظة مدينة.
@@ -181,35 +212,26 @@ if ($amount > $available) {
                     );
                 }
 
-                $wallet->balance = round(
-                    (float) $wallet->balance - $amount,
-                    2
-                );
-
-                $wallet->total_withdrawn = round(
-                    (float) $wallet->total_withdrawn + $amount,
-                    2
-                );
-
+                $wallet->balance = round((float) $wallet->balance - $amount, 2);
+                $wallet->total_withdrawn = round((float) $wallet->total_withdrawn + $amount, 2);
                 $wallet->save();
 
                 WalletTransaction::create([
-                    'wallet_id' => $wallet->id,
+                    'wallet_id'             => $wallet->id,
                     'withdrawal_request_id' => $request->id,
-                    'type' => 'debit',
-                    'amount' => $amount,
-                    'balance_after' => $wallet->balance,
-                    'description' => "تنفيذ طلب السحب رقم #{$request->id}",
-                    'status' => 'completed',
+                    'type'                  => 'debit',
+                    'amount'                => $amount,
+                    'balance_after'         => $wallet->balance,
+                    'description'           => "تنفيذ طلب السحب رقم #{$request->id}",
+                    'status'                => 'completed',
                 ]);
+
+                $updates['paid_by']            = $actor->id;
+                $updates['paid_at']            = now();
+                $updates['transfer_reference'] = $transferReference;
             }
 
-            // تحديث حالة طلب السحب.
-            $request->update([
-                'status' => $status,
-                'admin_note' => $adminNote ?? $request->admin_note,
-                'processed_at' => now(),
-            ]);
+            $request->update($updates);
 
             return $request->fresh();
         });
