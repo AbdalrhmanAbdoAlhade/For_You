@@ -7,6 +7,8 @@ use App\Models\Role;
 use App\Models\Permission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use App\Models\AuditLog;
+use App\Support\PermissionGuard;
 
 class RoleController extends Controller
 {
@@ -20,7 +22,7 @@ class RoleController extends Controller
         return response()->json($role->load('permissions')->loadCount('users'));
     }
 
-    public function store(Request $request)
+      public function store(Request $request)
     {
         $data = $request->validate([
             'name'          => 'required|string|max:255|unique:roles,name',
@@ -28,6 +30,9 @@ class RoleController extends Controller
             'permissions'   => 'nullable|array',
             'permissions.*' => 'exists:permissions,id',
         ]);
+
+        // مينفعش تعمل دور فيه صلاحيات إنت نفسك مش معاك
+        PermissionGuard::assertCanGrantPermissionIds($request->user(), $data['permissions'] ?? []);
 
         $role = Role::create([
             'name'        => $data['name'],
@@ -40,6 +45,8 @@ class RoleController extends Controller
             $role->permissions()->sync($data['permissions']);
         }
 
+        AuditLog::record('role.created', $role, ['permissions' => $data['permissions'] ?? []]);
+
         return response()->json($role->load('permissions'), 201);
     }
 
@@ -49,6 +56,8 @@ class RoleController extends Controller
             return response()->json(['message' => 'لا يمكن تعديل دور Super Admin'], 403);
         }
 
+        PermissionGuard::assertCanManageRole($request->user(), $role);
+
         $data = $request->validate([
             'name'          => 'sometimes|string|max:255|unique:roles,name,' . $role->id,
             'description'   => 'nullable|string',
@@ -57,6 +66,10 @@ class RoleController extends Controller
             'permissions.*' => 'exists:permissions,id',
         ]);
 
+        if (array_key_exists('permissions', $data)) {
+            PermissionGuard::assertCanGrantPermissionIds($request->user(), $data['permissions'] ?? []);
+        }
+
         // الـ slug معرّف ثابت، مبنغيرهوش لما الاسم يتغير
         $role->update(collect($data)->except('permissions')->all());
 
@@ -64,14 +77,21 @@ class RoleController extends Controller
             $role->permissions()->sync($data['permissions'] ?? []);
         }
 
+        AuditLog::record('role.updated', $role, [
+            'fields'      => array_keys(collect($data)->except('permissions')->all()),
+            'permissions' => $data['permissions'] ?? null,
+        ]);
+
         return response()->json($role->load('permissions'));
     }
 
-    public function destroy(Role $role)
+    public function destroy(Request $request, Role $role)
     {
         if ($this->isSystemRole($role)) {
             return response()->json(['message' => 'لا يمكن حذف دور Super Admin'], 403);
         }
+
+        PermissionGuard::assertCanManageRole($request->user(), $role);
 
         if ($role->users()->exists()) {
             return response()->json(
@@ -82,6 +102,8 @@ class RoleController extends Controller
 
         $role->permissions()->detach();
         $role->delete();
+
+        AuditLog::record('role.deleted', $role);
 
         return response()->json(['message' => 'تم حذف الدور بنجاح']);
     }
