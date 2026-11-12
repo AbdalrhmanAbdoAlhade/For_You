@@ -48,15 +48,14 @@ use App\Http\Controllers\Admin\InfluencerProductController as AdminInfluencerPro
 // ======================================================================
 
 // ---- Auth ----
-Route::middleware('throttle:auth')->group(function () {
-    Route::post('register', [AuthController::class, 'register']);
-    Route::post('login', [AuthController::class, 'login']);
-        Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword']);
-    Route::post('auth/reset-password', [AuthController::class, 'resetPassword']);
-});
+// كل route له limiter خاص بيه (متعرّفين في AppServiceProvider)
+Route::post('register', [AuthController::class, 'register'])->middleware('throttle:register');
+Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
+Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:forgot-password');
+Route::post('auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:reset-password');
 
 // ---- Social Login ----
-Route::prefix('auth')->group(function () {
+Route::prefix('auth')->middleware('throttle:social')->group(function () {
     Route::get('{provider}/redirect', [SocialAuthController::class, 'redirect']);
     Route::get('{provider}/callback', [SocialAuthController::class, 'callback']);
     Route::post('{provider}/token', [SocialAuthController::class, 'loginWithToken']);
@@ -92,7 +91,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::post('logout', [AuthController::class, 'logout']);
         Route::match(['put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
         // throttle:auth عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
-        Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:auth');
+              // throttle:change-password عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
+        Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:change-password');
     });
 
     // ---- Addresses ----
