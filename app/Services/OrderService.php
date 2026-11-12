@@ -76,128 +76,130 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
     return $this->resolveLink($ref, $customer, $ids) !== null;
 }
 
-public function createOrder(User $customer, array $data): Order
-{
-    return DB::transaction(function () use ($customer, $data) {
+    public function createOrder(User $customer, array $data): Order
+    {
+        return DB::transaction(function () use ($customer, $data) {
 
-        // 1. تجهيز المنتجات وحساب المجموع الفرعي
-        [$lines, $subtotal] = $this->buildLines($data['items'], true);
+            // 1. تجهيز المنتجات وحساب المجموع الفرعي
+            [$lines, $subtotal] = $this->buildLines($data['items'], true);
 
-        // 2. حساب الأسعار والخصومات والشحن والكوبون
-        $pricing = $this->pricingService->calculate(
-            $subtotal,
-            $data['coupon_code'] ?? null,
-            $data['city'] ?? null,
-            $customer,
-            true
-        );
+            // 2. حساب الأسعار والخصومات والشحن والكوبون
+            $pricing = $this->pricingService->calculate(
+                $subtotal,
+                $data['coupon_code'] ?? null,
+                $data['city'] ?? null,
+                $customer,
+                true
+            );
 
-        $coupon = $pricing['coupon'];
+            $coupon = $pricing['coupon'];
 
-        // 3. استخراج المنتجات الموجودة في الطلب
-        $orderedProductIds = array_map(
-            fn ($line) => (int) $line['product']->id,
-            $lines
-        );
+            // 3. استخراج المنتجات الموجودة في الطلب
+            $orderedProductIds = array_map(
+                fn ($line) => (int) $line['product']->id,
+                $lines
+            );
 
-        // 4. تحديد رابط الإحالة
-        $link = $this->resolveLink(
-            $data['ref'] ?? null,
-            $customer,
-            $orderedProductIds
-        );
+            // 4. تحديد رابط الإحالة (مع منع الإحالة الذاتية بالتليفون/الإيميل)
+            $link = $this->resolveLink(
+                $data['ref'] ?? null,
+                $customer,
+                $orderedProductIds,
+                [
+                    'phone' => $data['customer_phone'] ?? null,
+                    'email' => $data['customer_email'] ?? null,
+                ]
+            );
 
-        $linkProductId = $link?->product_id;
+            $linkProductId = $link?->product_id;
 
-        // 5. جلب نسب عمولة المؤثر الفعالة
-        $commissionPercentages = collect();
-
-        if ($link && $link->influencer_id) {
-            $commissionPercentages = DB::table('influencer_product')
-                ->where('influencer_id', $link->influencer_id)
-                ->where('is_active', true)
-                ->whereIn('product_id', $orderedProductIds)
-                ->pluck('commission_percentage', 'product_id');
-        }
-
-        // 6. إنشاء الطلب أولاً
-        $order = Order::create([
-            'order_number'        => $this->generateOrderNumber(),
-            'customer_id'         => $customer->id,
-            'influencer_id'       => $link?->influencer_id,
-            'promotional_link_id' => $link?->id,
-            'coupon_id'           => $coupon?->id,
-            'coupon_code'         => $coupon?->code,
-            'status'              => 'new',
-            'subtotal'            => $pricing['subtotal'],
-            'discount'            => $pricing['discount'],
-            'shipping_cost'       => $pricing['shipping_cost'],
-            'total'               => $pricing['total'],
-            'customer_name'       => $data['customer_name'],
-            'customer_phone'      => $data['customer_phone'],
-            'customer_email'      => $data['customer_email'] ?? null,
-            'shipping_address'    => $data['shipping_address'],
-            'city'                => $data['city'] ?? null,
-            'country'             => $data['country'] ?? null,
-            'notes'               => $data['notes'] ?? null,
-        ]);
-
-        // 7. إنشاء عناصر الطلب وتجميد عمولة كل منتج
-        foreach ($lines as $line) {
-            $product = $line['product'];
-
-            $frozenPercentage = null;
+            // 5. جلب نسب عمولة المؤثر الفعالة
+            $commissionPercentages = collect();
 
             if ($link && $link->influencer_id) {
-
-                // إذا كان الرابط خاصاً بمنتج معين
-                // فلا يستحق المؤثر عمولة على المنتجات الأخرى
-                $eligible = $linkProductId === null
-                    || (int) $linkProductId === (int) $product->id;
-
-                if ($eligible && $commissionPercentages->has($product->id)) {
-                    $frozenPercentage = self::resolveCommissionPercentage(
-                        $commissionPercentages->get($product->id)
-                    );
-                }
+                $commissionPercentages = DB::table('influencer_product')
+                    ->where('influencer_id', $link->influencer_id)
+                    ->where('is_active', true)
+                    ->whereIn('product_id', $orderedProductIds)
+                    ->pluck('commission_percentage', 'product_id');
             }
 
-            OrderItem::create([
-                'order_id'              => $order->id,
-                'product_id'            => $product->id,
-                'product_name'          => $product->localized('name'),
-                'price'                 => $product->price,
-                'discount_price'        => $product->has_discount
-                    ? $product->effective_price
-                    : null,
-                'commission_percentage' => $frozenPercentage,
-                'quantity'              => $line['qty'],
-                'total'                 => $line['lineTotal'],
+            // 6. إنشاء الطلب أولاً
+            $order = Order::create([
+                'order_number'        => $this->generateOrderNumber(),
+                'customer_id'         => $customer->id,
+                'influencer_id'       => $link?->influencer_id,
+                'promotional_link_id' => $link?->id,
+                'coupon_id'           => $coupon?->id,
+                'coupon_code'         => $coupon?->code,
+                'status'              => 'new',
+                'subtotal'            => $pricing['subtotal'],
+                'discount'            => $pricing['discount'],
+                'shipping_cost'       => $pricing['shipping_cost'],
+                'total'               => $pricing['total'],
+                'customer_name'       => $data['customer_name'],
+                'customer_phone'      => $data['customer_phone'],
+                'customer_email'      => $data['customer_email'] ?? null,
+                'shipping_address'    => $data['shipping_address'],
+                'city'                => $data['city'] ?? null,
+                'country'             => $data['country'] ?? null,
+                'notes'               => $data['notes'] ?? null,
             ]);
 
-            // خصم المخزون مرة واحدة فقط
-            $product->decrement('stock', $line['qty']);
-        }
+            // 7. إنشاء عناصر الطلب وتجميد عمولة كل منتج
+            foreach ($lines as $line) {
+                $product = $line['product'];
 
-        // 8. تحديث عدد استخدامات الكوبون
-        $coupon?->increment('used_count');
+                $frozenPercentage = null;
 
-        // 9. إنشاء سجل الدفع بحالة pending
-        Payment::create([
-            'order_id'       => $order->id,
-            'payment_method' => $data['payment_method']
-                ?? config('store.default_payment_method'),
-            'amount'         => $pricing['total'],
-            'status'         => 'pending',
-        ]);
+                if ($link && $link->influencer_id) {
+                    // إذا كان الرابط خاصاً بمنتج معين فلا عمولة على المنتجات الأخرى
+                    $eligible = $linkProductId === null
+                        || (int) $linkProductId === (int) $product->id;
 
-        // 10. إرجاع الطلب مع المنتجات والدفع
-        return $order->load([
-            'items',
-            'payment',
-        ]);
-    });
-}
+                    if ($eligible && $commissionPercentages->has($product->id)) {
+                        $frozenPercentage = self::resolveCommissionPercentage(
+                            $commissionPercentages->get($product->id)
+                        );
+                    }
+                }
+
+                OrderItem::create([
+                    'order_id'              => $order->id,
+                    'product_id'            => $product->id,
+                    'product_name'          => $product->localized('name'),
+                    'price'                 => $product->price,
+                    'discount_price'        => $product->has_discount
+                        ? $product->effective_price
+                        : null,
+                    'commission_percentage' => $frozenPercentage,
+                    'quantity'              => $line['qty'],
+                    'total'                 => $line['lineTotal'],
+                ]);
+
+                // خصم المخزون مرة واحدة فقط
+                $product->decrement('stock', $line['qty']);
+            }
+
+            // 8. تحديث عدد استخدامات الكوبون
+            $coupon?->increment('used_count');
+
+            // 9. إنشاء سجل الدفع بحالة pending
+            Payment::create([
+                'order_id'       => $order->id,
+                'payment_method' => $data['payment_method']
+                    ?? config('store.default_payment_method'),
+                'amount'         => $pricing['total'],
+                'status'         => 'pending',
+            ]);
+
+            // 10. إرجاع الطلب مع المنتجات والدفع
+            return $order->load([
+                'items',
+                'payment',
+            ]);
+        });
+    }
         /**
      * إلغاء العميل لطلبه: مسموح قبل التأكيد والدفع بس.
      *
@@ -408,46 +410,76 @@ if ($product->stock < $qty) {
         return [$lines, round($subtotal, 2)];
     }
 
- protected function resolveLink(
-    ?string $ref,
-    User $customer,
-    array $orderedProductIds = []
-): ?PromotionalLink {
-    if (!$ref) {
-        return null;
+    protected function resolveLink(
+        ?string $ref,
+        User $customer,
+        array $orderedProductIds = [],
+        array $contact = []
+    ): ?PromotionalLink {
+        if (!$ref) {
+            return null;
+        }
+
+        $link = $this->linkService->findActive($ref);
+
+        if (!$link) {
+            return null;
+        }
+
+        $influencer = $link->influencer;
+
+        $validInfluencer = $influencer
+            && $influencer->type === 'influencer'
+            && $influencer->is_active
+            && $influencer->id !== $customer->id;
+
+        if (!$validInfluencer) {
+            return null;
+        }
+
+        // المؤثر بيشتري بحساب تاني بنفس التليفون/الإيميل
+        if ($this->looksLikeSelfReferral($influencer, $customer, $contact)) {
+            return null;
+        }
+
+        // الرابط الخاص بمنتج لا يُنسب إلا لطلب يحتوي على هذا المنتج.
+        if (
+            $link->product_id !== null
+            && !in_array((int) $link->product_id, $orderedProductIds, true)
+        ) {
+            return null;
+        }
+
+        return $link;
     }
 
-    $link = $this->linkService->findActive($ref);
+    /** نفس تليفون/إيميل المؤثر في حساب العميل أو في بيانات الطلب */
+    protected function looksLikeSelfReferral(User $influencer, User $customer, array $contact): bool
+    {
+        $influencerPhone = $this->normalizePhone($influencer->phone);
+        $influencerEmail = $influencer->email ? mb_strtolower(trim($influencer->email)) : null;
 
-    if (!$link) {
-        return null;
+        $phones = array_filter([
+            $this->normalizePhone($customer->phone),
+            $this->normalizePhone($contact['phone'] ?? null),
+        ]);
+
+        $emails = array_filter([
+            $customer->email ? mb_strtolower(trim($customer->email)) : null,
+            !empty($contact['email']) ? mb_strtolower(trim($contact['email'])) : null,
+        ]);
+
+        return ($influencerPhone && in_array($influencerPhone, $phones, true))
+            || ($influencerEmail && in_array($influencerEmail, $emails, true));
     }
 
-    $influencer = $link->influencer;
+    /** أرقام بس، وآخر 10 خانات (يتجاوز +20 و0 في الأول) */
+    protected function normalizePhone(?string $phone): ?string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $phone);
 
-    $validInfluencer = $influencer
-        && $influencer->type === 'influencer'
-        && $influencer->is_active
-        && $influencer->id !== $customer->id;
-
-    if (!$validInfluencer) {
-        return null;
+        return strlen($digits) >= 8 ? substr($digits, -10) : null;
     }
-
-    // الرابط الخاص بمنتج لا يُنسب إلا لطلب يحتوي على هذا المنتج.
-    if (
-        $link->product_id !== null
-        && !in_array(
-            (int) $link->product_id,
-            $orderedProductIds,
-            true
-        )
-    ) {
-        return null;
-    }
-
-    return $link;
-}
 
        protected function assertTransitionAllowed(string $from, string $to): void
     {
