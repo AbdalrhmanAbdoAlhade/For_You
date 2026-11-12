@@ -36,8 +36,8 @@ public function store(Request $request)
         'name'              => 'required|string|max:255',
         'description'       => 'nullable|string',
         'short_description' => 'nullable|string',
-        'price'             => 'required|numeric|min:0',
-        'discount_price'    => 'nullable|numeric|min:0',
+        'price'             => 'required|numeric|min:0.01', // بدل min:0 عشان منمنع الأسعار الصفرية
+        'discount_price'    => ['nullable', 'numeric', 'gt:0', 'lt:' . $request->input('price')],
         'stock'             => 'required|integer|min:0',
         'sku'               => 'nullable|string|unique:products,sku',
         'images'            => 'nullable|array',
@@ -72,8 +72,8 @@ public function store(Request $request)
             'name'              => 'sometimes|string|max:255',
             'description'       => 'nullable|string',
             'short_description' => 'nullable|string',
-            'price'             => 'sometimes|numeric|min:0',
-            'discount_price'    => 'nullable|numeric|min:0',
+             'price'             => 'sometimes|numeric|min:0.01',
+                'discount_price'    => 'nullable|numeric|gt:0'
             'stock'             => 'sometimes|integer|min:0',
             'sku'               => 'nullable|string|unique:products,sku,' . $product->id,
             'images'            => 'nullable|array',
@@ -83,7 +83,14 @@ public function store(Request $request)
             'is_featured'       => 'boolean',
             'is_active'         => 'boolean',
         ]);
-
+// مقارنة الخصم بالسعر الفعّال (جديد أو قديم)
+$effectivePrice = (float) ($data['price'] ?? $product->price);
+if (array_key_exists('discount_price', $data) && $data['discount_price'] !== null
+    && (float) $data['discount_price'] >= $effectivePrice) {
+    throw \Illuminate\Validation\ValidationException::withMessages([
+        'discount_price' => 'سعر الخصم يجب أن يكون أكبر من صفر وأقل من السعر الأساسي.',
+    ]);
+}
         if (isset($data['name'])) {
             $data['slug'] = Str::slug($data['name']);
         }
