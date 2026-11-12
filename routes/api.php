@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\CategoryController as ApiCategoryController;
 use App\Http\Controllers\Api\ProductController as ApiProductController;
 use App\Http\Controllers\Api\StoreInfluencerController;
 use App\Http\Controllers\Api\TrackController;
+use App\Http\Controllers\Api\PaymentWebhookController;
+use App\Http\Controllers\Api\ShippingWebhookController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\OrderController;
@@ -80,6 +82,12 @@ Route::get('influencers/{id}/products', [StoreInfluencerController::class, 'prod
 // ---- تتبع الرابط الترويجي (بيزود الـ clicks) ----
 Route::get('track/{code}', [TrackController::class, 'show'])->middleware('throttle:api');
 
+// ---- Webhooks (بدون Sanctum: التوقيع هو وسيلة التحقق) ----
+Route::post('webhooks/payments/{gateway}', [PaymentWebhookController::class, 'handle'])
+    ->middleware('throttle:webhook');
+Route::post('webhooks/shipping/{gateway}', [ShippingWebhookController::class, 'handle'])
+    ->middleware('throttle:webhook');
+
 // ======================================================================
 // Protected Routes
 // ======================================================================
@@ -90,8 +98,7 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('me', [AuthController::class, 'me']);
         Route::post('logout', [AuthController::class, 'logout']);
         Route::match(['put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
-        // throttle:auth عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
-              // throttle:change-password عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
+        // throttle:change-password عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
         Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:change-password');
     });
 
@@ -229,7 +236,6 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
               Route::get('withdrawals', [WithdrawalController::class, 'index'])->middleware('permission:withdrawals.view,withdrawals.approve,withdrawals.pay');
         Route::patch('withdrawals/{withdrawal}/process', [WithdrawalController::class, 'process'])
             ->middleware('permission:withdrawals.approve,withdrawals.pay');
-    ->middleware('permission:influencers.wallets');
 
         // ---- Banners ----
         Route::get('banners', [BannerController::class, 'index'])->middleware('permission:banners.view');

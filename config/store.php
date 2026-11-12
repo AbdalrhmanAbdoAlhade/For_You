@@ -1,8 +1,15 @@
 <?php
 
 return [
-    'default_payment_method' => env('DEFAULT_PAYMENT_METHOD', 'easykash'),
-    'payment_methods'        => ['easykash'],
+    'default_payment_method' => env('DEFAULT_PAYMENT_METHOD', 'manual'),
+    'payment_methods'        => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('PAYMENT_METHODS', 'manual,easykash'))
+    ))),
+
+    // بوابة الشحن الافتراضية (manual = نفس السلوك الحالي)
+    'shipping_gateway' => env('SHIPPING_GATEWAY', 'manual'),
+    'shipping_webhook_secret' => env('SHIPPING_WEBHOOK_SECRET'),
 
     // الطلب اللي فضل 'new' من غير دفع أكتر من المدة دي بيتلغي والمخزون بيرجع (0 = معطّل)
     'unpaid_order_ttl_hours' => (int) env('UNPAID_ORDER_TTL_HOURS', 24),
@@ -20,4 +27,12 @@ return [
 
     // لازم الدفع يتأكد قبل إنشاء الشحنة
     'require_payment_before_shipping' => env('REQUIRE_PAYMENT_BEFORE_SHIPPING', true),
+
+    // نفس الزائر مايتحسبش click تاني لنفس الرابط قبل مرور المدة دي
+    'link_click_ttl_minutes' => (int) env('LINK_CLICK_TTL_MINUTES', 60),
+
+    // تفعيل التحقق من الإيميل للعملاء (skeleton — افتراضيًا معطّل)
+    'email_verification' => [
+        'enabled' => (bool) env('EMAIL_VERIFICATION_ENABLED', false),
+    ],
 ];
