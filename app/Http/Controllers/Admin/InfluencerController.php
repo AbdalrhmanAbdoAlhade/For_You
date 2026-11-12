@@ -90,37 +90,48 @@ class InfluencerController extends Controller
 
 
 
-   public function attachProducts(Request $request, User $influencer)
-{
-    abort_if($influencer->type !== 'influencer', 404);
+     public function attachProducts(Request $request, User $influencer)
+    {
+        abort_if($influencer->type !== 'influencer', 404);
 
-    $data = $request->validate([
-        'products' => 'required|array|min:1',
-        'products.*.product_id' => 'required|integer|distinct|exists:products,id',
-        'products.*.commission_percentage' => 'nullable|numeric|min:0|max:100',
-    ]);
+        $data = $request->validate([
+            'products'                             => 'required|array|min:1',
+            'products.*.product_id'                => 'required|integer|distinct|exists:products,id',
+            'products.*.commission_percentage'     => 'nullable|numeric|min:0|max:100',
+            'products.*.is_active'                 => 'sometimes|boolean',
+        ]);
 
-    $attach = [];
-    foreach ($data['products'] as $item) {
-        $pivot = ['is_active' => true];
+        $attach = [];
+        foreach ($data['products'] as $item) {
+            $pivot = [];
 
-        // النسبة بتتكتب بس لو اتبعتت (null صريحة = استخدم الافتراضي).
-        // لو مش مبعوتة: المنتج الجديد بياخد null، والمربوط قبل كده بتفضل نسبته زي ما هي.
-        if (array_key_exists('commission_percentage', $item)) {
-            $pivot['commission_percentage'] = $item['commission_percentage'];
+            if (array_key_exists('commission_percentage', $item)) {
+                $pivot['commission_percentage'] = $item['commission_percentage'];
+            }
+
+            // is_active صريح فقط؛ لو مش مبعوت ما نلمسش القيمة القديمة
+            if (array_key_exists('is_active', $item)) {
+                $pivot['is_active'] = (bool) $item['is_active'];
+            } else {
+                // منتج جديد فقط → نشط افتراضيًا
+                $already = $influencer->influencerProducts()
+                    ->where('products.id', $item['product_id'])
+                    ->exists();
+                if (!$already) {
+                    $pivot['is_active'] = true;
+                }
+            }
+
+            $attach[$item['product_id']] = $pivot;
         }
 
-        $attach[$item['product_id']] = $pivot;
+        $influencer->influencerProducts()->syncWithoutDetaching($attach);
+
+        return response()->json([
+            'message'  => 'تم ربط المنتجات بالمؤثر بنجاح',
+            'products' => $influencer->influencerProducts()->get(),
+        ]);
     }
-
-    // إضافة/تعديل من غير ما نفصل باقي المنتجات
-    $influencer->influencerProducts()->syncWithoutDetaching($attach);
-
-    return response()->json([
-        'message'  => 'تم ربط المنتجات بالمؤثر بنجاح',
-        'products' => $influencer->influencerProducts()->get(),
-    ]);
-}
 
       public function destroy(User $influencer)
     {
