@@ -7,6 +7,8 @@ use App\Models\Payment;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use App\Models\AuditLog;
+وuse Illuminate\Validation\Rule;
 
 class PaymentController extends Controller
 {
@@ -44,18 +46,39 @@ class PaymentController extends Controller
         return response()->json($payment->load('order.customer:id,name,phone'));
     }
 
-    public function updateStatus(Request $request, Payment $payment)
+      public function updateStatus(Request $request, Payment $payment)
     {
         $data = $request->validate([
             'status'         => 'required|in:paid,failed,refunded',
-            'transaction_id' => 'nullable|string|max:100|unique:payments,transaction_id,' . $payment->id,
+            // التأكيد اليدوي لازم يكون معاه رقم العملية كإثبات
+            'transaction_id' => [
+                'nullable', 'string', 'max:100',
+                Rule::unique('payments', 'transaction_id')->ignore($payment->id),
+                Rule::requiredIf(fn () => $request->input('status') === 'paid'),
+            ],
         ]);
+
+        // فصل الصلاحيات: تأكيد/فشل الدفع غير الاسترداد
+        $needed = $data['status'] === 'refunded' ? 'payments.refund' : 'payments.confirm';
+
+        if (!$request->user()->hasPermission($needed)) {
+            return response()->json(['message' => 'ليس لديك صلاحية لتنفيذ هذا الإجراء'], 403);
+        }
+
+        $from = $payment->status;
 
         try {
             $payment = $this->paymentService->updateStatus($payment, $data['status'], $data['transaction_id'] ?? null);
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        AuditLog::record('payment.' . $data['status'], $payment, [
+            'from'           => $from,
+            'order_id'       => $payment->order_id,
+            'amount'         => (float) $payment->amount,
+            'transaction_id' => $data['transaction_id'] ?? null,
+        ]);
 
         return response()->json([
             'message' => 'تم تحديث حالة الدفع',
