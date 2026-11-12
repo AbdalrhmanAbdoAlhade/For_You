@@ -65,15 +65,15 @@ public function store(Request $request)
         return response()->json($product->load('category', 'influencers'));
     }
 
-        public function update(Request $request, Product $product)
+           public function update(Request $request, Product $product)
     {
         $data = $request->validate([
             'category_id'       => 'sometimes|exists:categories,id',
             'name'              => 'sometimes|string|max:255',
             'description'       => 'nullable|string',
             'short_description' => 'nullable|string',
-             'price'             => 'sometimes|numeric|min:0.01',
-                'discount_price'    => 'nullable|numeric|gt:0'
+            'price'             => 'sometimes|numeric|min:0.01',
+            'discount_price'    => 'nullable|numeric|gt:0',
             'stock'             => 'sometimes|integer|min:0',
             'sku'               => 'nullable|string|unique:products,sku,' . $product->id,
             'images'            => 'nullable|array',
@@ -83,14 +83,20 @@ public function store(Request $request)
             'is_featured'       => 'boolean',
             'is_active'         => 'boolean',
         ]);
-// مقارنة الخصم بالسعر الفعّال (جديد أو قديم)
-$effectivePrice = (float) ($data['price'] ?? $product->price);
-if (array_key_exists('discount_price', $data) && $data['discount_price'] !== null
-    && (float) $data['discount_price'] >= $effectivePrice) {
-    throw \Illuminate\Validation\ValidationException::withMessages([
-        'discount_price' => 'سعر الخصم يجب أن يكون أكبر من صفر وأقل من السعر الأساسي.',
-    ]);
-}
+
+        // مقارنة الخصم بالسعر الفعّال (الجديد لو اتبعت، أو القديم)
+        $effectivePrice = (float) ($data['price'] ?? $product->price);
+
+        if (
+            array_key_exists('discount_price', $data)
+            && $data['discount_price'] !== null
+            && (float) $data['discount_price'] >= $effectivePrice
+        ) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'discount_price' => 'سعر الخصم يجب أن يكون أكبر من صفر وأقل من السعر الأساسي.',
+            ]);
+        }
+
         if (isset($data['name'])) {
             $data['slug'] = Str::slug($data['name']);
         }
@@ -110,6 +116,17 @@ if (array_key_exists('discount_price', $data) && $data['discount_price'] !== nul
                 $this->fileUploadService->uploadMultiple($request->file('images'), 'products')
             );
         }
+
+        unset($data['images'], $data['remove_images']);
+
+        if ($request->hasFile('images') || !empty($toRemove)) {
+            $data['images'] = $current;
+        }
+
+        $product->update($data);
+
+        return response()->json($product->load('category'));
+    }
 
         unset($data['images'], $data['remove_images']);
 
