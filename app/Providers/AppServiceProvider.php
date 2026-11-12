@@ -76,7 +76,20 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perHour(20)->by('rp:token:' . $request->input('token')),
             ];
         });
+        // Change password: محدود على المستخدم نفسه (التوكن المسروق مينفعش يخمّن الباسورد الحالي)
+        RateLimiter::for('change-password', function (Request $request) {
+            $key = $request->user()?->id ?: $request->ip();
 
+            return [
+                Limit::perMinute(5)->by('cp:user:' . $key),
+                Limit::perDay(30)->by('cp:user-day:' . $key),
+            ];
+        });
+
+        // Social login: بتتحسب على الـ IP (مفيش email في الـ request)
+        RateLimiter::for('social', function (Request $request) {
+            return Limit::perMinute(20)->by('social:ip:' . $request->ip());
+        });
         // ==================== Frontend Password Reset URL ====================
 
         ResetPassword::createUrlUsing(function ($user, string $token) {
