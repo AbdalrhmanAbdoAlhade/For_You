@@ -18,6 +18,17 @@ class OrderService
 {
     /** ترتيب الدورة الطبيعية للطلب */
     protected const FLOW = ['new', 'confirmed', 'processing', 'ready_for_shipping', 'shipped', 'delivered'];
+        /** الانتقالات المسموحة: من حالة لحالة واحدة تالية بالظبط (أو إلغاء/إرجاع) */
+    protected const TRANSITIONS = [
+        'new'                => ['confirmed', 'cancelled'],
+        'confirmed'          => ['processing', 'cancelled'],
+        'processing'         => ['ready_for_shipping', 'cancelled'],
+        'ready_for_shipping' => ['shipped', 'cancelled'],
+        'shipped'            => ['delivered', 'returned'],
+        'delivered'          => ['returned'],
+        'cancelled'          => [],
+        'returned'           => [],
+    ];
 
     public function __construct(
         protected InfluencerCommissionService $commissionService,
