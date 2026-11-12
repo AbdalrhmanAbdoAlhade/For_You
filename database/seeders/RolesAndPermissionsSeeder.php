@@ -236,17 +236,38 @@ class RolesAndPermissionsSeeder extends Seeder
             JOIN permissions pn ON pn.slug = 'payments.confirm'
         ");
 
+             // ========================
+        // 4. إنشاء Super Admin User (اختياري — من الـ env فقط)
         // ========================
-        // 4. إنشاء Super Admin User (اختياري)
-        // ========================
+        $adminEmail    = env('ADMIN_EMAIL');
+        $adminPassword = env('ADMIN_PASSWORD');
+
+        // امنع إنشاء أدمن افتراضي في production أو لو الـ env مش متحدد
+        if (app()->environment('production') && (empty($adminEmail) || empty($adminPassword))) {
+            $this->command?->warn('تخطي إنشاء Super Admin: ADMIN_EMAIL / ADMIN_PASSWORD غير محددين في production.');
+            return;
+        }
+
+        // في local/testing: لو مش محددين، استخدم قيم تطوير واضحة
+        if (empty($adminEmail) || empty($adminPassword)) {
+            if (! app()->environment(['local', 'testing'])) {
+                $this->command?->warn('تخطي إنشاء Super Admin: ADMIN_EMAIL / ADMIN_PASSWORD غير محددين.');
+                return;
+            }
+
+            $adminEmail    = 'admin@example.com';
+            $adminPassword = 'password';
+            $this->command?->warn('تم إنشاء Super Admin بقيم تطوير افتراضية (admin@example.com / password). غيّرها فوراً.');
+        }
+
         $admin = User::updateOrCreate(
-            ['email' => 'admin@example.com'],
+            ['email' => $adminEmail],
             [
-                'name'     => 'Super Admin',
-                'phone'    => '01000000000',
-                'password' => Hash::make('password'),
-                'type'     => 'admin',
-                'is_active'=> true,
+                'name'      => env('ADMIN_NAME', 'Super Admin'),
+                'phone'     => env('ADMIN_PHONE', '01000000000'),
+                'password'  => Hash::make($adminPassword),
+                'type'      => 'admin',
+                'is_active' => true,
             ]
         );
 
