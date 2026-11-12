@@ -239,104 +239,114 @@ public function createOrder(User $customer, array $data): Order
         }
     }
 
-   /**
- * @throws \DomainException لو الانتقال مش مسموح
- */
-public function updateStatus(Order $order, string $status): Order
-{
-    $changed = false;
-    $commissions = collect();
+    /**
+     * @throws \DomainException لو الانتقال مش مسموح
+     */
+    public function updateStatus(Order $order, string $status): Order
+    {
+        $changed = false;
+        $commissions = collect();
 
-    $order = DB::transaction(function () use ($order, $status, &$changed, &$commissions) {
+        $order = DB::transaction(function () use ($order, $status, &$changed, &$commissions) {
 
-        $order = Order::with('items')->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $order = Order::with('items')->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-        if ($order->status === $status) {
-            return $order;
-        }
+            if ($order->status === $status) {
+                return $order;
+            }
 
-        $this->assertTransitionAllowed($order->status, $status);
+            $this->assertTransitionAllowed($order->status, $status);
 
-        // منع الشحن أو التوصيل قبل تأكيد الدفع، حسب إعدادات المتجر.
-        if (
-            config('store.require_payment_before_shipping', true)
-            && in_array($status, ['shipped', 'delivered'], true)
-        ) {
-            $payment = $order->payment()
-                ->lockForUpdate()
-                ->first();
-
-            if (!$payment || $payment->status !== 'paid') {
+            // طلب مدفوع: الإلغاء/الإرجاع لازم يتم عن طريق استرداد الدفع
+            if (
+                in_array($status, ['cancelled', 'returned'], true)
+                && $order->payment()->where('status', 'paid')->exists()
+            ) {
                 throw new \DomainException(
-                    'لا يمكن شحن أو تسليم الطلب قبل تأكيد الدفع'
+                    'الطلب مدفوع: استرجع الدفعة الأول من شاشة المدفوعات وهيتم إلغاء/إرجاع الطلب تلقائيًا'
                 );
             }
-        }
 
-        $previousStatus = $order->status;
+            // منع الشحن أو التوصيل قبل تأكيد الدفع، حسب إعدادات المتجر.
+            if (
+                config('store.require_payment_before_shipping', true)
+                && in_array($status, ['shipped', 'delivered'], true)
+            ) {
+                $payment = $order->payment()
+                    ->lockForUpdate()
+                    ->first();
 
-        $order->update(['status' => $status]);
-        $changed = true;
-
-        // تسجيل التحويل عند اكتمال توصيل الطلب
-        if ($status === 'delivered' && $order->promotional_link_id) {
-            PromotionalLink::whereKey($order->promotional_link_id)
-                ->increment('conversions');
-        }
-
-        // استبعاد الطلب المرتجع من التحويلات إذا كان قد وصل بالفعل
-        if (
-            $status === 'returned'
-            && $previousStatus === 'delivered'
-            && $order->promotional_link_id
-        ) {
-            PromotionalLink::whereKey($order->promotional_link_id)
-                ->where('conversions', '>', 0)
-                ->decrement('conversions');
-        }
-
-        if ($status === 'cancelled') {
-            // نرجّع استخدام الكوبون ونقفل الدفعات المعلقة
-            if ($order->coupon_id) {
-                Coupon::whereKey($order->coupon_id)
-                    ->where('used_count', '>', 0)
-                    ->decrement('used_count');
+                if (!$payment || $payment->status !== 'paid') {
+                    throw new \DomainException(
+                        'لا يمكن شحن أو تسليم الطلب قبل تأكيد الدفع'
+                    );
+                }
             }
 
-            Payment::where('order_id', $order->id)
-                ->where('status', 'pending')
-                ->update(['status' => 'failed']);
-        }
+            $previousStatus = $order->status;
 
-        if (in_array($status, ['cancelled', 'returned'], true)) {
-            $this->restoreStock($order);
-            $this->commissionService->reverseForOrder($order);
-        }
+            $order->update(['status' => $status]);
+            $changed = true;
 
-        if ($status === 'delivered' && $order->influencer_id) {
-            $commissions = $this->commissionService->calculateAndStore($order);
+            // تسجيل التحويل عند اكتمال توصيل الطلب
+            if ($status === 'delivered' && $order->promotional_link_id) {
+                PromotionalLink::whereKey($order->promotional_link_id)
+                    ->increment('conversions');
+            }
+
+            // استبعاد الطلب المرتجع من التحويلات إذا كان قد وصل بالفعل
+            if (
+                $status === 'returned'
+                && $previousStatus === 'delivered'
+                && $order->promotional_link_id
+            ) {
+                PromotionalLink::whereKey($order->promotional_link_id)
+                    ->where('conversions', '>', 0)
+                    ->decrement('conversions');
+            }
+
+            if ($status === 'cancelled') {
+                // نرجّع استخدام الكوبون ونقفل الدفعات المعلقة
+                if ($order->coupon_id) {
+                    Coupon::whereKey($order->coupon_id)
+                        ->where('used_count', '>', 0)
+                        ->decrement('used_count');
+                }
+
+                Payment::where('order_id', $order->id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'failed']);
+            }
+
+            if (in_array($status, ['cancelled', 'returned'], true)) {
+                $this->restoreStock($order);
+                $this->commissionService->reverseForOrder($order);
+            }
+
+            if ($status === 'delivered' && $order->influencer_id) {
+                $commissions = $this->commissionService->calculateAndStore($order);
+            }
+
+            return $order;
+        });
+
+        if ($changed) {
+            $order->customer->notify(new OrderStatusUpdated($order));
+
+            if ($commissions->isNotEmpty()) {
+                // لو في عمولات معلّقة، نبعت تاريخ إتاحتها في الإشعار
+                $availableAt = $commissions->where('status', 'pending')->min('available_at');
+
+                $order->influencer->notify(new NewCommission(
+                    $order->id,
+                    (float) $commissions->sum('commission_amount'),
+                    $availableAt?->toDateTimeString()
+                ));
+            }
         }
 
         return $order;
-    });
-
-    if ($changed) {
-        $order->customer->notify(new OrderStatusUpdated($order));
-
-        if ($commissions->isNotEmpty()) {
-            // لو في عمولات معلّقة، نبعت تاريخ إتاحتها في الإشعار
-            $availableAt = $commissions->where('status', 'pending')->min('available_at');
-
-            $order->influencer->notify(new NewCommission(
-                $order->id,
-                (float) $commissions->sum('commission_amount'),
-                $availableAt?->toDateTimeString()
-            ));
-        }
     }
-
-    return $order;
-}
 
     // ========================= helpers =========================
 
