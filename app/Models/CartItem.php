@@ -43,13 +43,12 @@ class CartItem extends Model
         return null;
     }
 
-    public function getTotalAttribute()
+       public function getTotalAttribute()
     {
         if (!$this->is_available) {
             return 0; // العنصر غير المتاح مبيتحسبش في الإجمالي
         }
 
-        $price = $this->product->discount_price ?? $this->product->price;
-        return $price * $this->quantity;
+        return round($this->product->effective_price * $this->quantity, 2);
     }
 }
