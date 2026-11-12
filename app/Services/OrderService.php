@@ -114,15 +114,15 @@ $link = $this->resolveLink(
             foreach ($lines as $line) {
                 $product = $line['product'];
 
-                OrderItem::create([
-                    'order_id'       => $order->id,
-                    'product_id'     => $product->id,
-                     'product_name' => $product->localized('name'),
-                    'price'          => $product->price,
-                    'discount_price' => $product->discount_price,
-                    'quantity'       => $line['qty'],
-                    'total'          => $line['lineTotal'],
-                ]);
+               OrderItem::create([
+    'order_id'       => $order->id,
+    'product_id'     => $product->id,
+    'product_name'   => $product->localized('name'),
+    'price'          => $product->price,
+    'discount_price' => $product->has_discount ? $product->effective_price : null,
+    'quantity'       => $line['qty'],
+    'total'          => $line['lineTotal'],
+]);
 
                 $product->decrement('stock', $line['qty']);
             }
