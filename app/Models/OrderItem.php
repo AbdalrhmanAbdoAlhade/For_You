@@ -15,9 +15,11 @@ class OrderItem extends Model
         'discount_price',
         'quantity',
         'total',
+    'commission_percentage',
     ];
 
     protected $casts = [
+     'commission_percentage' => 'float',
         'price' => 'decimal:2',
         'discount_price' => 'decimal:2',
         'total' => 'decimal:2',
