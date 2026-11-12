@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Services;
@@ -13,20 +14,15 @@ use RuntimeException;
 class InfluencerCommissionService
 {
     /**
-     * نسبة العمولة الفعلية: النسبة الخاصة بالمنتج لو موجودة،
-     * وإلا النسبة الافتراضية من الإعدادات (null في الـ pivot = الافتراضي).
-     */
-    public static function resolvePercentage(mixed $pivotValue): float
-    {
-        return $pivotValue !== null
-            ? (float) $pivotValue
-            : (float) config('services.influencer.default_commission', 10);
-    }
-
-    /**
      * إنشاء عمولات الطلب وإضافتها إلى محفظة المؤثر.
      *
+     * تعتمد الخدمة على commission_percentage المحفوظة داخل order_items
+     * ولا تعيد قراءة نسبة العمولة من جدول influencer_product.
+     *
      * يجب استدعاء هذه العملية عند تحقق البيع، وليس بمجرد إنشاء الطلب.
+     *
+     * NULL في commission_percentage تعني أن المنتج غير مؤهل للعمولة.
+     * أما 0 فتعني أن المنتج مؤهل لكن نسبة العمولة صفر.
      *
      * @return Collection<int, InfluencerCommission>
      */
@@ -53,34 +49,11 @@ class InfluencerCommissionService
                 return collect();
             }
 
-            $productIds = $items
-                ->pluck('product_id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            if ($productIds->isEmpty()) {
-                return collect();
-            }
-
-            /*
-             * لا نعتبر المنتج مؤهلاً للعمولة إلا إذا كان مربوطاً
-             * بالمؤثر والربط مفعّلاً.
-             */
-            $eligibleProducts = DB::table('influencer_product')
-                ->where('influencer_id', $lockedOrder->influencer_id)
-                ->where('is_active', true)
-                ->whereIn('product_id', $productIds)
-                ->get()
-                ->keyBy('product_id');
-
             /*
              * إذا كان رابط الإحالة مرتبطاً بمنتج محدد،
              * فلا تُحسب العمولة إلا لهذا المنتج.
              */
-            $promotionalLink = $lockedOrder->promotionalLink;
-
-            $linkProductId = $promotionalLink?->product_id;
+            $linkProductId = $lockedOrder->promotionalLink?->product_id;
 
             // العناصر التي سبق إنشاء عمولة لها لا تُكرر.
             $existingItemIds = InfluencerCommission::query()
@@ -105,10 +78,11 @@ class InfluencerCommissionService
                     continue;
                 }
 
-                if (in_array($item->id, $existingItemIds, true)) {
+                if (in_array((int) $item->id, $existingItemIds, true)) {
                     continue;
                 }
 
+                // احترام قيد رابط الإحالة إذا كان مرتبطاً بمنتج محدد.
                 if (
                     $linkProductId !== null
                     && (int) $linkProductId !== (int) $item->product_id
@@ -116,14 +90,26 @@ class InfluencerCommissionService
                     continue;
                 }
 
-                $pivot = $eligibleProducts->get($item->product_id);
+                /*
+                 * قراءة النسبة المجمدة داخل عنصر الطلب.
+                 *
+                 * نستخدم getRawOriginal للتأكد من التمييز بين:
+                 * NULL = غير مؤهل.
+                 * 0    = مؤهل بنسبة صفر.
+                 */
+                $rawPercentage = $item->getRawOriginal('commission_percentage');
 
-                // المنتج غير مربوط بالمؤثر أو الربط غير مفعّل.
-                if (!$pivot) {
+                if ($rawPercentage === null) {
                     continue;
                 }
 
-                $percentage = self::resolvePercentage($pivot->commission_percentage);
+                if (!is_numeric($rawPercentage)) {
+                    throw new RuntimeException(
+                        "نسبة العمولة غير صحيحة لعنصر الطلب رقم {$item->id}"
+                    );
+                }
+
+                $percentage = (float) $rawPercentage;
 
                 if ($percentage < 0 || $percentage > 100) {
                     throw new RuntimeException(
@@ -145,7 +131,10 @@ class InfluencerCommissionService
                     2
                 );
 
-                $commissionAmount = round(($netTotal * $percentage) / 100, 2);
+                $commissionAmount = round(
+                    ($netTotal * $percentage) / 100,
+                    2
+                );
 
                 $commission = InfluencerCommission::create([
                     'influencer_id'         => $lockedOrder->influencer_id,
@@ -156,11 +145,15 @@ class InfluencerCommissionService
                     'commission_percentage' => $percentage,
                     'commission_amount'     => $commissionAmount,
                     'status'                => $holdDays > 0 ? 'pending' : 'approved',
-                    'available_at'          => $holdDays > 0 ? now()->addDays($holdDays) : null,
+                    'available_at'          => $holdDays > 0
+                        ? now()->addDays($holdDays)
+                        : null,
                 ]);
 
-                // مع فترة انتظار العمولة مش بتدخل المحفظة دلوقتي،
-                // وإنما عند releaseDue بعد انتهاء الفترة.
+                /*
+                 * مع وجود فترة انتظار، لا تدخل العمولة المحفظة الآن،
+                 * وإنما تدخل عند releaseDue بعد انتهاء الفترة.
+                 */
                 if ($holdDays === 0 && $commissionAmount > 0) {
                     $this->addToWallet(
                         (int) $lockedOrder->influencer_id,
@@ -176,24 +169,33 @@ class InfluencerCommissionService
         });
     }
 
+    /**
+     * عدد أيام الانتظار قبل إتاحة العمولة.
+     */
     protected function holdDays(): int
     {
-        return max(0, (int) config('services.influencer.commission_hold_days', 7));
+        return max(
+            0,
+            (int) config('services.influencer.commission_hold_days', 7)
+        );
     }
 
     /**
      * توزيع خصم الطلب على الأصناف بالتناسب (بالقروش، مع توزيع الباقي)
-     * بحيث مجموع الحصص = الخصم بالظبط.
+     * بحيث مجموع الحصص = الخصم بالضبط.
      *
      * @return array<int, float> [order_item_id => discount share]
      */
     protected function allocateDiscount(Collection $items, float $discount): array
     {
         $discountCents = (int) round($discount * 100);
+
         $totals = [];
 
         foreach ($items as $item) {
-            $totals[$item->id] = (int) round(((float) $item->total) * 100);
+            $totals[$item->id] = (int) round(
+                ((float) $item->total) * 100
+            );
         }
 
         $baseCents = array_sum($totals);
@@ -210,10 +212,12 @@ class InfluencerCommissionService
 
         foreach ($totals as $id => $cents) {
             $raw = ($cents * $discountCents) / $baseCents;
+
             $floor = (int) floor($raw);
 
             $shares[$id] = $floor;
             $remainders[$id] = $raw - $floor;
+
             $allocated += $floor;
         }
 
@@ -230,11 +234,14 @@ class InfluencerCommissionService
             $left--;
         }
 
-        return array_map(fn (int $cents) => $cents / 100, $shares);
+        return array_map(
+            fn (int $cents) => $cents / 100,
+            $shares
+        );
     }
 
     /**
-     * إتاحة كل العمولات المعلّقة اللي انتهت فترة انتظارها.
+     * إتاحة كل العمولات المعلقة التي انتهت فترة انتظارها.
      */
     public function releaseDue(): int
     {
@@ -252,7 +259,9 @@ class InfluencerCommissionService
                             $released++;
                         }
                     } catch (\Throwable $e) {
-                        report($e); // فشل عمولة واحدة ما يوقفش الباقي
+                        report($e);
+
+                        // فشل عمولة واحدة لا يوقف معالجة باقي العمولات.
                     }
                 }
             });
@@ -261,13 +270,13 @@ class InfluencerCommissionService
     }
 
     /**
-     * إتاحة عمولة واحدة: تتحول approved وتدخل المحفظة،
-     * بشرط إن الطلب لسه delivered.
+     * إتاحة عمولة واحدة: تتحول إلى approved وتدخل المحفظة،
+     * بشرط أن يكون الطلب ما زال delivered.
      */
     public function release(InfluencerCommission $commission): bool
     {
         return DB::transaction(function () use ($commission) {
-            // نفس ترتيب القفل في reverseForOrder: الطلب أولًا ثم العمولة.
+            // نفس ترتيب القفل في reverseForOrder: الطلب أولاً ثم العمولة.
             $order = Order::whereKey($commission->order_id)
                 ->lockForUpdate()
                 ->first();
@@ -284,7 +293,9 @@ class InfluencerCommissionService
                 return false;
             }
 
-            $locked->update(['status' => 'approved']);
+            $locked->update([
+                'status' => 'approved',
+            ]);
 
             if ((float) $locked->commission_amount > 0) {
                 $this->addToWallet(
@@ -343,86 +354,97 @@ class InfluencerCommissionService
         ]);
     }
 
-  /**
- * عكس العمولات عند إلغاء الطلب أو إرجاعه.
- *
- * - العمولات pending: تُلغى فقط (لم تدخل المحفظة بعد).
- * - العمولات approved: تُخصم من المحفظة.
- * - لو الرصيد غير كافٍ: يصبح سالباً (دين على المؤثر) ويُسجَّل في الحركة.
- */
-public function reverseForOrder(Order $order): void
-{
-    if (!$order->influencer_id) {
-        return;
-    }
-
-    DB::transaction(function () use ($order) {
-        $lockedOrder = Order::whereKey($order->id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        $commissions = InfluencerCommission::query()
-            ->where('order_id', $lockedOrder->id)
-            ->whereIn('status', ['pending', 'approved'])
-            ->lockForUpdate()
-            ->get();
-
-        if ($commissions->isEmpty()) {
+    /**
+     * عكس العمولات عند إلغاء الطلب أو إرجاعه.
+     *
+     * - العمولات pending: تُلغى فقط لأنها لم تدخل المحفظة بعد.
+     * - العمولات approved: تُخصم من المحفظة.
+     * - لو الرصيد غير كافٍ: يصبح سالباً (دين على المؤثر).
+     */
+    public function reverseForOrder(Order $order): void
+    {
+        if (!$order->influencer_id) {
             return;
         }
 
-        // المبلغ الذي دخل المحفظة فعلاً (approved فقط)
-        $approvedTotal = round(
-            (float) $commissions
-                ->where('status', 'approved')
-                ->sum('commission_amount'),
-            2
-        );
+        DB::transaction(function () use ($order) {
+            $lockedOrder = Order::whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        // نلغي كل العمولات أولاً
-        foreach ($commissions as $commission) {
-            $commission->update(['status' => 'cancelled']);
-        }
+            $commissions = InfluencerCommission::query()
+                ->where('order_id', $lockedOrder->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->lockForUpdate()
+                ->get();
 
-        if ($approvedTotal <= 0) {
-            return;
-        }
+            if ($commissions->isEmpty()) {
+                return;
+            }
 
-        $wallet = InfluencerWallet::where('influencer_id', $lockedOrder->influencer_id)
-            ->lockForUpdate()
-            ->first();
-
-        if (!$wallet) {
-            throw new RuntimeException(
-                "محفظة المؤثر غير موجودة للطلب رقم {$lockedOrder->id}"
+            // المبلغ الذي دخل المحفظة فعلاً (approved فقط).
+            $approvedTotal = round(
+                (float) $commissions
+                    ->where('status', 'approved')
+                    ->sum('commission_amount'),
+                2
             );
-        }
 
-// قد يصبح الرصيد سالباً إذا سبق للمؤثر سحب العمولة.
-$balanceBefore = (float) $wallet->balance;
+            // إلغاء كل العمولات أولاً.
+            foreach ($commissions as $commission) {
+                $commission->update([
+                    'status' => 'cancelled',
+                ]);
+            }
 
-$wallet->balance = round($balanceBefore - $approvedTotal, 2);
+            if ($approvedTotal <= 0) {
+                return;
+            }
 
-$wallet->total_earned = round(
-    max(0, (float) $wallet->total_earned - $approvedTotal),
-    2
-);
+            $wallet = InfluencerWallet::where(
+                'influencer_id',
+                $lockedOrder->influencer_id
+            )
+                ->lockForUpdate()
+                ->first();
 
-$wallet->save();
+            if (!$wallet) {
+                throw new RuntimeException(
+                    "محفظة المؤثر غير موجودة للطلب رقم {$lockedOrder->id}"
+                );
+            }
 
-$description = $wallet->balance < 0
-    ? "عكس عمولة الطلب #{$lockedOrder->id} (رصيد سالب / مديونية)"
-    : "عكس عمولة الطلب #{$lockedOrder->id}";
+            // قد يصبح الرصيد سالباً إذا سبق للمؤثر سحب العمولة.
+            $balanceBefore = (float) $wallet->balance;
 
-WalletTransaction::create([
-    'wallet_id'     => $wallet->id,
-    'order_id'      => $lockedOrder->id,
-    'type'          => 'debit',
-    'amount'        => $approvedTotal,
-    'balance_after' => $wallet->balance,
-    'description'   => $description,
-    'status'        => 'completed',
-]);
-    });
-}
+            $wallet->balance = round(
+                $balanceBefore - $approvedTotal,
+                2
+            );
+
+            $wallet->total_earned = round(
+                max(
+                    0,
+                    (float) $wallet->total_earned - $approvedTotal
+                ),
+                2
+            );
+
+            $wallet->save();
+
+            $description = $wallet->balance < 0
+                ? "عكس عمولة الطلب #{$lockedOrder->id} (رصيد سالب / مديونية)"
+                : "عكس عمولة الطلب #{$lockedOrder->id}";
+
+            WalletTransaction::create([
+                'wallet_id'     => $wallet->id,
+                'order_id'      => $lockedOrder->id,
+                'type'          => 'debit',
+                'amount'        => $approvedTotal,
+                'balance_after' => $wallet->balance,
+                'description'   => $description,
+                'status'        => 'completed',
+            ]);
+        });
+    }
 }
