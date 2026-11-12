@@ -88,15 +88,7 @@ class InfluencerController extends Controller
         return response()->json($influencer);
     }
 
-    public function destroy(User $influencer)
-    {
-        abort_if($influencer->type !== 'influencer', 404);
 
-        $influencer->tokens()->delete();
-        $influencer->delete();
-
-        return response()->json(['message' => 'تم حذف المؤثر بنجاح']);
-    }
 
    public function attachProducts(Request $request, User $influencer)
 {
@@ -130,6 +122,45 @@ class InfluencerController extends Controller
     ]);
 }
 
+      public function destroy(User $influencer)
+    {
+        abort_if($influencer->type !== 'influencer', 404);
+
+        // منع الحذف لو فيه رصيد أو سحوبات/عمولات معلّقة
+        $wallet = $influencer->wallet;
+
+        if ($wallet && ((float) $wallet->balance > 0 || (float) $wallet->total_earned > 0)) {
+            return response()->json([
+                'message' => 'لا يمكن حذف مؤثر لديه رصيد أو أرباح مسجّلة. عطّل الحساب بدلاً من الحذف.',
+            ], 422);
+        }
+
+        $hasPendingWithdrawals = \App\Models\WithdrawalRequest::where('influencer_id', $influencer->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->exists();
+
+        if ($hasPendingWithdrawals) {
+            return response()->json([
+                'message' => 'لا يمكن حذف مؤثر لديه طلبات سحب معلّقة أو معتمدة.',
+            ], 422);
+        }
+
+        $hasPendingCommissions = $influencer->commissions()
+            ->whereIn('status', ['pending', 'available'])
+            ->exists();
+
+        if ($hasPendingCommissions) {
+            return response()->json([
+                'message' => 'لا يمكن حذف مؤثر لديه عمولات معلّقة أو متاحة.',
+            ], 422);
+        }
+
+        $influencer->tokens()->delete();
+        $influencer->delete();
+
+        return response()->json(['message' => 'تم حذف المؤثر بنجاح']);
+    }
+
     public function generateLink(Request $request, User $influencer)
     {
         abort_if($influencer->type !== 'influencer', 404);
@@ -138,7 +169,23 @@ class InfluencerController extends Controller
             'product_id' => 'nullable|exists:products,id',
         ]);
 
-        $link = $this->linkService->generate($influencer, $request->product_id);
+        $productId = $request->product_id;
+
+        // الرابط الخاص بمنتج لازم يكون المنتج مربوط بالمؤثر ونشط
+        if ($productId !== null) {
+            $attached = $influencer->influencerProducts()
+                ->where('products.id', $productId)
+                ->wherePivot('is_active', true)
+                ->exists();
+
+            if (!$attached) {
+                return response()->json([
+                    'message' => 'المنتج غير مربوط بهذا المؤثر أو الربط غير نشط. اربطه أولاً من شاشة المنتجات.',
+                ], 422);
+            }
+        }
+
+        $link = $this->linkService->generate($influencer, $productId);
 
         return response()->json($link, 201);
     }
