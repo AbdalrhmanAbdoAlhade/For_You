@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
+use App\Models\AuditLog;
 
 class OrderController extends Controller
 {
@@ -37,7 +38,7 @@ class OrderController extends Controller
         );
     }
 
-        public function updateStatus(Request $request, Order $order)
+           public function updateStatus(Request $request, Order $order)
     {
         $data = $request->validate([
             'status' => 'required|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
@@ -54,11 +55,15 @@ class OrderController extends Controller
             return response()->json(['message' => 'ليس لديك صلاحية لتنفيذ هذا الإجراء'], 403);
         }
 
+        $from = $order->status;
+
         try {
             $order = $this->orderService->updateStatus($order, $data['status']);
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        AuditLog::record('order.status', $order, ['from' => $from, 'to' => $data['status']]);
 
         return response()->json([
             'message' => 'تم تحديث حالة الطلب بنجاح',
