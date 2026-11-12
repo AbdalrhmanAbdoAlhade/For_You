@@ -439,33 +439,25 @@ if ($product->stock < $qty) {
     return $link;
 }
 
-    protected function assertTransitionAllowed(string $from, string $to): void
+       protected function assertTransitionAllowed(string $from, string $to): void
     {
         if (in_array($from, ['cancelled', 'returned'], true)) {
             throw new \DomainException('لا يمكن تغيير حالة طلب ملغي أو مرتجع');
         }
 
-        $shippedIndex = array_search('shipped', self::FLOW, true);
-        $fromIndex    = array_search($from, self::FLOW, true);
+        $allowed = self::TRANSITIONS[$from] ?? [];
 
-        $allowed = match ($to) {
-            'cancelled' => $fromIndex < $shippedIndex,
-            'returned'  => $fromIndex >= $shippedIndex,
-            default     => ($toIndex = array_search($to, self::FLOW, true)) !== false
-                           && $toIndex > $fromIndex,
-        };
-
-        if (!$allowed) {
-           
-throw new \DomainException(
-    __('لا يمكن نقل الطلب من الحالة (:from) إلى (:to)', [
-        'from' => $from,
-        'to'   => $to,
-    ])
-);
-
+        if (!in_array($to, $allowed, true)) {
+            throw new \DomainException(
+                __('لا يمكن نقل الطلب من الحالة (:from) إلى (:to)', [
+                    'from' => $from,
+                    'to'   => $to,
+                ])
+            );
         }
     }
+
+
 
     protected function restoreStock(Order $order): void
     {
