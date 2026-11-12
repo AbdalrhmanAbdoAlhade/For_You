@@ -18,11 +18,16 @@ return [
     // أيام الانتظار بعد التسليم قبل ما العمولة تدخل المحفظة (0 = فورًا)
     'commission_hold_days' => (int) env('INFLUENCER_COMMISSION_HOLD_DAYS', 7),
 ],
-    'google' => [
-    'client_id'     => env('GOOGLE_CLIENT_ID'),
-    'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-    'redirect'      => env('GOOGLE_REDIRECT_URI'),
-],
+       'google' => [
+        'client_id'     => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect'      => env('GOOGLE_REDIRECT_URI'),
+        // كل الـ Client IDs المسموحة (ويب + أندرويد + iOS) مفصولة بفاصلة
+        'client_ids'    => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('GOOGLE_CLIENT_IDS', env('GOOGLE_CLIENT_ID')))
+        ))),
+    ],
 
 'apple' => [
     'client_id'     => env('APPLE_CLIENT_ID'),
