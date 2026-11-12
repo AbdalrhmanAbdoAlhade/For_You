@@ -29,36 +29,36 @@ public function __construct(
     protected FileUploadService $fileUploadService
 ) {}
 
-public function store(Request $request)
-{
-    $data = $request->validate([
-        'category_id'       => 'required|exists:categories,id',
-        'name'              => 'required|string|max:255',
-        'description'       => 'nullable|string',
-        'short_description' => 'nullable|string',
-        'price'             => 'required|numeric|min:0.01', // بدل min:0 عشان منمنع الأسعار الصفرية
-        'discount_price'    => ['nullable', 'numeric', 'gt:0', 'lt:' . $request->input('price')],
-        'stock'             => 'required|integer|min:0',
-        'sku'               => 'nullable|string|unique:products,sku',
-        'images'            => 'nullable|array',
-        'images.*'          => 'image|mimes:jpg,jpeg,png,webp|max:2048',
-        'is_featured'       => 'boolean',
-        'is_active'         => 'boolean',
-    ]);
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'category_id'       => 'required|exists:categories,id',
+            'name'              => 'required|string|max:255',
+            'description'       => 'nullable|string',
+            'short_description' => 'nullable|string',
+            'price'             => 'required|numeric|min:0.01', // بدل min:0 عشان منمنع الأسعار الصفرية
+            'discount_price'    => 'nullable|numeric|gt:0|lt:price',
+            'stock'             => 'required|integer|min:0',
+            'sku'               => 'nullable|string|unique:products,sku',
+            'images'            => 'nullable|array',
+            'images.*'          => 'image|mimes:jpg,jpeg,png,webp|max:2048',
+            'is_featured'       => 'boolean',
+            'is_active'         => 'boolean',
+        ]);
 
-    $data['slug'] = \Illuminate\Support\Str::slug($data['name']);
+        $data['slug'] = Str::slug($data['name']);
 
-    if ($request->hasFile('images')) {
-        $data['images'] = $this->fileUploadService->uploadMultiple(
-            $request->file('images'),
-            'products'
-        );
+        if ($request->hasFile('images')) {
+            $data['images'] = $this->fileUploadService->uploadMultiple(
+                $request->file('images'),
+                'products'
+            );
+        }
+
+        $product = Product::create($data);
+
+        return new \App\Http\Resources\ProductResource($product->load('category'));
     }
-
-    $product = Product::create($data);
-
-    return new \App\Http\Resources\ProductResource($product->load('category'));
-}
 
     public function show(Product $product)
     {
