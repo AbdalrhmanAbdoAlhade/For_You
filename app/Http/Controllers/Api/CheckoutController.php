@@ -9,9 +9,13 @@ use App\Services\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\Concerns\HandlesIdempotency;
+use App\Http\Resources\OrderResource;
 
 class CheckoutController extends Controller
 {
+        use HandlesIdempotency;
+    
     public function __construct(
         protected OrderService $orderService,
         protected CartService $cartService
@@ -57,7 +61,7 @@ class CheckoutController extends Controller
         }
     }
 
-    /** ينشئ الطلب من السلة ويفضيها — محمي ضد التكرار */
+       /** ينشئ الطلب من السلة ويفضيها — محمي ضد التكرار */
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -84,54 +88,31 @@ class CheckoutController extends Controller
             $data['country']          = $address->country;
         }
 
-        // ===== طبقة 1: Idempotency-Key =====
-        // الضغط المزدوج من نفس الجهاز بين نفس النتيجة بدل ما ينشئ طلبين
-        $lock = null;
-        $idemCacheKey = null;
+        // طبقة 1: Idempotency-Key (اختياري هنا، لأن قفل السلة بيحمي حتى من غيره)
+        return $this->idempotent($request, 'checkout', function () use ($request, $data) {
+            try {
+                // طبقة 2: قفل السلة جوه الترانزاكشن
+                $order = DB::transaction(function () use ($request, $data) {
+                    $data['items'] = $this->lockedCartItems($request);
 
-        if ($idemKey = $request->header('Idempotency-Key')) {
-            $idemCacheKey = 'checkout:' . $request->user()->id . ':' . hash('sha256', $idemKey);
+                    if (empty($data['items'])) {
+                        throw new \DomainException('السلة فارغة');
+                    }
 
-            if ($cached = Cache::get($idemCacheKey)) {
-                return response()->json($cached, 200); // نفس نتيجة أول محاولة
+                    $order = $this->orderService->createOrder($request->user(), $data);
+                    $this->cartService->clear($request->user());
+
+                    return $order;
+                });
+            } catch (\DomainException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
             }
 
-            $lock = Cache::lock($idemCacheKey . ':lock', 30);
-            if (!$lock->get()) {
-                // نفس المفتاح قيد المعالجة — العميل يعيد المحاولة وياخد النتيجة المخزنة
-                return response()->json(['message' => 'الطلب قيد المعالجة، حاول بعد ثوانٍ'], 409);
-            }
-        }
+            $payload = (new OrderResource($order))->resolve($request)
+                + ['ref_applied' => $order->promotional_link_id !== null];
 
-        try {
-            // ===== طبقة 2: قفل السلة جوه الترانزاكشن =====
-            // أول طلب بيقفل صف السلة، والتاني بيستنى لحد الـ commit وبعدين يلاقيها فاضية
-            $order = DB::transaction(function () use ($request, $data) {
-                $data['items'] = $this->lockedCartItems($request);
-
-                if (empty($data['items'])) {
-                    throw new \DomainException('السلة فارغة');
-                }
-
-                $order = $this->orderService->createOrder($request->user(), $data);
-                $this->cartService->clear($request->user());
-
-                return $order;
-            });
-        } catch (\DomainException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        } finally {
-            $lock?->release();
-        }
-
-        $payload = $order->toArray()
-            + ['ref_applied' => $order->promotional_link_id !== null];
-
-        if ($idemCacheKey) {
-            Cache::put($idemCacheKey, $payload, now()->addDays(7));
-        }
-
-        return response()->json($payload, 201);
+            return response()->json($payload, 201);
+        });
     }
 
     /**
