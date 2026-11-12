@@ -189,7 +189,7 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         // ---- Payments ----
         Route::get('payments', [PaymentController::class, 'index'])->middleware('permission:payments.view,payments.manage');
         Route::get('payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:payments.view,payments.manage');
-        Route::patch('payments/{payment}/status', [PaymentController::class, 'updateStatus'])->middleware('permission:payments.manage');
+               Route::patch('payments/{payment}/status', [PaymentController::class, 'updateStatus'])->middleware('permission:payments.confirm,payments.refund');
 
         // ---- Shipping ----
         Route::get('shipping', [ShippingController::class, 'index'])->middleware('permission:shipping.view,shipping.manage');
@@ -226,8 +226,9 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('wallets', [AdminInfluencerWalletController::class, 'index'])->middleware('permission:influencers.wallets');
         Route::get('wallets/{wallet}', [AdminInfluencerWalletController::class, 'show'])->middleware('permission:influencers.wallets');
         Route::get('wallet-transactions', [AdminInfluencerWalletController::class, 'transactions'])->middleware('permission:influencers.wallets');
-        Route::get('withdrawals', [WithdrawalController::class, 'index'])->middleware('permission:influencers.wallets');
+              Route::get('withdrawals', [WithdrawalController::class, 'index'])->middleware('permission:withdrawals.view,withdrawals.approve,withdrawals.pay');
         Route::patch('withdrawals/{withdrawal}/process', [WithdrawalController::class, 'process'])
+            ->middleware('permission:withdrawals.approve,withdrawals.pay');
     ->middleware('permission:influencers.wallets');
 
         // ---- Banners ----
