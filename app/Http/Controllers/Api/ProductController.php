@@ -9,36 +9,61 @@ use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
-       public function index(Request $request)
+    public function index(Request $request)
     {
+        $perPage = min(max((int) $request->get('per_page', 15), 1), 50);
+
         $products = Product::active()
             ->with('category')
-            ->when($request->category_id, fn($q) => $q->where('category_id', $request->category_id))
+            ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
             ->when($request->search, function ($q) use ($request) {
-                // لازم نجمّع الـ orWhere جوه where واحدة، وإلا بتكسر باقي الفلاتر (is_active والقسم)
                 $q->where(function ($q) use ($request) {
-                   $q->where('name', 'like', "%{$request->search}%")
-                       ->orWhere('description', 'like', "%{$request->search}%")
-                       ->orWhere('name_en', 'like', "%{$request->search}%");
+                    $q->where('name', 'like', "%{$request->search}%")
+                        ->orWhere('description', 'like', "%{$request->search}%")
+                        ->orWhere('name_en', 'like', "%{$request->search}%");
                 });
             })
-              
-            ->when($request->featured, fn($q) => $q->featured())
-            ->when($request->min_price, fn($q) => $q->where('price', '>=', $request->min_price))
-            ->when($request->max_price, fn($q) => $q->where('price', '<=', $request->max_price))
+            // featured لازم يكون boolean صريح
+            ->when(
+                $request->has('featured') && $request->boolean('featured'),
+                fn ($q) => $q->featured()
+            )
+            // فلتر السعر على السعر الفعّال (خصم لو موجود)
+            ->when($request->min_price, function ($q) use ($request) {
+                $min = (float) $request->min_price;
+                $q->whereRaw(
+                    'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) >= ?',
+                    [$min]
+                );
+            })
+            ->when($request->max_price, function ($q) use ($request) {
+                $max = (float) $request->max_price;
+                $q->whereRaw(
+                    'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) <= ?',
+                    [$max]
+                );
+            })
             ->when($request->sort, function ($q) use ($request) {
                 match ($request->sort) {
-                    'price_asc'  => $q->orderBy('price', 'asc'),
-                    'price_desc' => $q->orderBy('price', 'desc'),
+                    'price_asc'  => $q->orderByRaw(
+                        'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) ASC'
+                    ),
+                    'price_desc' => $q->orderByRaw(
+                        'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) DESC'
+                    ),
                     'newest'     => $q->latest(),
                     'oldest'     => $q->oldest(),
                     default      => $q->latest(),
                 };
+            }, function ($q) {
+                // ترتيب افتراضي ثابت عشان الـ pagination ما يتحركش
+                $q->latest();
             })
-            ->paginate($request->get('per_page', 15));
+            ->paginate($perPage);
 
         return ProductResource::collection($products);
     }
+
     public function show($id)
     {
         $product = Product::active()
