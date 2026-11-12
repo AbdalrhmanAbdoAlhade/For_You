@@ -16,7 +16,7 @@ class ProductResource extends JsonResource
             'description'       => $this->localized('description'),
             'short_description' => $this->localized('short_description'),
             'price'             => (float) $this->price,
-            'discount_price'    => $this->discount_price ? (float) $this->discount_price : null,
+             'discount_price'    => $this->has_discount ? (float) $this->effective_price : null,
             'final_price'       => (float) $this->final_price,
             'stock'             => $this->stock,
             'sku'               => $this->sku,
@@ -26,6 +26,7 @@ class ProductResource extends JsonResource
             'category'          => new CategoryResource($this->whenLoaded('category')),
             'influencers'       => UserResource::collection($this->whenLoaded('influencers')),
             'created_at'        => $this->created_at?->toDateTimeString(),
+            
         ];
     }
 }
