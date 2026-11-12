@@ -50,10 +50,17 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'Manage Promotional Links',  'slug' => 'influencers.links',         'group' => 'influencers'],
             ['name' => 'View Influencer Wallets',   'slug' => 'influencers.wallets',       'group' => 'influencers'],
             ['name' => 'Manage Influencer Commissions', 'slug' => 'influencers.commissions', 'group' => 'influencers'],
+            
+            // ========== Withdrawals (New) ==========
+            ['name' => 'View Withdrawals',          'slug' => 'withdrawals.view',          'group' => 'influencers'],
+            ['name' => 'Approve Withdrawals',       'slug' => 'withdrawals.approve',       'group' => 'influencers'],
+            ['name' => 'Pay Withdrawals',           'slug' => 'withdrawals.pay',           'group' => 'influencers'],
 
             // ========== Payments ==========
             ['name' => 'View Payments',     'slug' => 'payments.view',     'group' => 'payments'],
             ['name' => 'Manage Payments',   'slug' => 'payments.manage',   'group' => 'payments'],
+            ['name' => 'Confirm Payments',  'slug' => 'payments.confirm',  'group' => 'payments'],
+            ['name' => 'Refund Payments',   'slug' => 'payments.refund',   'group' => 'payments'],
 
             // ========== Shipping ==========
             ['name' => 'View Shipping',     'slug' => 'shipping.view',     'group' => 'shipping'],
@@ -72,16 +79,16 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'View Sales Reports','slug' => 'reports.sales',     'group' => 'reports'],
             ['name' => 'View Influencer Reports', 'slug' => 'reports.influencers', 'group' => 'reports'],
 
-            // ========== Dashboard ==========
+            // ========== Dashboard & Banners & Coupons ==========
             ['name' => 'View Dashboard',    'slug' => 'dashboard.view',    'group' => 'dashboard'],
-            ['name' => 'View Banners',   'slug' => 'banners.view',   'group' => 'banners'],
-            ['name' => 'Create Banners', 'slug' => 'banners.create', 'group' => 'banners'],
-            ['name' => 'Edit Banners',   'slug' => 'banners.edit',   'group' => 'banners'],
-            ['name' => 'Delete Banners', 'slug' => 'banners.delete', 'group' => 'banners'],
-            ['name' => 'View Coupons',   'slug' => 'coupons.view',   'group' => 'coupons'],
-            ['name' => 'Create Coupons', 'slug' => 'coupons.create', 'group' => 'coupons'],
-            ['name' => 'Edit Coupons',   'slug' => 'coupons.edit',   'group' => 'coupons'],
-            ['name' => 'Delete Coupons', 'slug' => 'coupons.delete', 'group' => 'coupons'],
+            ['name' => 'View Banners',      'slug' => 'banners.view',      'group' => 'banners'],
+            ['name' => 'Create Banners',    'slug' => 'banners.create',    'group' => 'banners'],
+            ['name' => 'Edit Banners',      'slug' => 'banners.edit',      'group' => 'banners'],
+            ['name' => 'Delete Banners',    'slug' => 'banners.delete',    'group' => 'banners'],
+            ['name' => 'View Coupons',      'slug' => 'coupons.view',      'group' => 'coupons'],
+            ['name' => 'Create Coupons',    'slug' => 'coupons.create',    'group' => 'coupons'],
+            ['name' => 'Edit Coupons',      'slug' => 'coupons.edit',      'group' => 'coupons'],
+            ['name' => 'Delete Coupons',    'slug' => 'coupons.delete',    'group' => 'coupons'],
         ];
 
         foreach ($permissions as $permission) {
@@ -180,6 +187,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'influencers.wallets',
                 'influencers.commissions',
                 'reports.influencers',
+                'withdrawals.view', // تمت إضافتها بناءً على التحديثات
             ])->pluck('id')
         );
 
@@ -198,6 +206,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'dashboard.view',
                 'payments.view',
                 'payments.manage',
+                'payments.confirm', // تمت إضافتها بناءً على التحديثات
                 'reports.view',
                 'reports.sales',
                 'influencers.wallets',
@@ -206,7 +215,29 @@ class RolesAndPermissionsSeeder extends Seeder
         );
 
         // ========================
-        // 3. إنشاء Super Admin User (اختياري)
+        // 3. تطبيق ربط الصلاحيات التلقائي (Dynamic Rol-Permission mapping)
+        // ========================
+        
+        // الأدوار اللي كانت بتشوف المحافظ تشوف السحوبات بس
+        DB::statement("
+            INSERT IGNORE INTO role_permission (role_id, permission_id, created_at, updated_at)
+            SELECT rp.role_id, pn.id, NOW(), NOW()
+            FROM role_permission rp
+            JOIN permissions po ON po.id = rp.permission_id AND po.slug = 'influencers.wallets'
+            JOIN permissions pn ON pn.slug = 'withdrawals.view'
+        ");
+
+        // الأدوار اللي كانت payments.manage تاخد تأكيد الدفع بس
+        DB::statement("
+            INSERT IGNORE INTO role_permission (role_id, permission_id, created_at, updated_at)
+            SELECT rp.role_id, pn.id, NOW(), NOW()
+            FROM role_permission rp
+            JOIN permissions po ON po.id = rp.permission_id AND po.slug = 'payments.manage'
+            JOIN permissions pn ON pn.slug = 'payments.confirm'
+        ");
+
+        // ========================
+        // 4. إنشاء Super Admin User (اختياري)
         // ========================
         $admin = User::updateOrCreate(
             ['email' => 'admin@example.com'],
