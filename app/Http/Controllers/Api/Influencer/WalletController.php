@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\WithdrawalRequest;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class WalletController extends Controller
 {
@@ -17,30 +18,36 @@ class WalletController extends Controller
     {
         $wallet = $this->walletService->getOrCreateWallet($request->user()->id);
 
-$pending = $this->walletService->pendingWithdrawals($wallet);
+        $pending = $this->walletService->pendingWithdrawals($wallet);
 
-// عمولات لسه في فترة الانتظار (مش داخلة في الرصيد ولا قابلة للسحب).
-$held = $request->user()->commissions()->where('status', 'pending');
+        // عمولات لسه في فترة الانتظار (مش داخلة في الرصيد ولا قابلة للسحب)
+        $held = $request->user()->commissions()->where('status', 'pending');
 
-return response()->json([
-    'wallet' => [
-        'held_commissions'    => round((float) (clone $held)->sum('commission_amount'), 2),
-        'next_release_at'     => (clone $held)->min('available_at'),
-        'balance'             => (float) $wallet->balance,
-        'pending_withdrawals' => $pending,
-        'available_balance'   => (float) $wallet->balance - $pending,
-        'total_earned'        => (float) $wallet->total_earned,
-        'total_withdrawn'     => (float) $wallet->total_withdrawn,
-    ],
-    'transactions' => $wallet->transactions()->latest()->paginate(20),
-]);
+        return response()->json([
+            'wallet' => [
+                'held_commissions'    => round((float) (clone $held)->sum('commission_amount'), 2),
+                'next_release_at'     => (clone $held)->min('available_at'),
+                'balance'             => (float) $wallet->balance,
+                'pending_withdrawals' => $pending,
+                'available_balance'   => (float) $wallet->balance - $pending,
+                'total_earned'        => (float) $wallet->total_earned,
+                'total_withdrawn'     => (float) $wallet->total_withdrawn,
+                'currency'            => 'EGP',
+                'min_withdrawal'      => WalletService::MIN_WITHDRAWAL,
+            ],
+            'transactions' => $wallet->transactions()->latest()->paginate(20),
+        ]);
     }
 
     public function requestWithdrawal(Request $request)
     {
         $data = $request->validate([
-            'amount'          => 'required|numeric|min:' . WalletService::MIN_WITHDRAWAL,
-            'payment_method'  => 'required|string|max:50',
+            'amount' => 'required|numeric|min:' . WalletService::MIN_WITHDRAWAL,
+            'payment_method' => [
+                'required',
+                'string',
+                Rule::in(['vodafone_cash', 'instapay', 'bank_transfer', 'orange_cash', 'etisalat_cash']),
+            ],
             'account_details' => 'required|string|max:255',
         ]);
 
