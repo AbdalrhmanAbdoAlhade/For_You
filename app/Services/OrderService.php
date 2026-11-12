@@ -332,7 +332,7 @@ if ($product->stock < $qty) {
 }
 
 
-            $unitPrice = (float) ($product->discount_price ?? $product->price);
+            $unitPrice = $product->effective_price;
             $lineTotal = round($unitPrice * $qty, 2);
             $subtotal += $lineTotal;
 
