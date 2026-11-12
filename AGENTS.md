@@ -1,47 +1,92 @@
-<laravel-boost-guidelines>
-# Laravel Application
+# For_You — Agent Guidelines
 
-This repository contains a Laravel application. Complete the following setup before working on the user's request.
+This repository is a Laravel 13 REST API for an e-commerce store with an
+influencer affiliate program (promotional links, tracked clicks, commissions,
+wallets and withdrawals).
 
-## Prerequisites
+## Environment
 
-Verify that PHP and Composer are available:
+- PHP 8.3+ with the `pdo_mysql` (or `pdo_sqlite` for tests) extension.
+- Composer 2.x.
+- Node.js only if you need to build the Vite assets (`npm install && npm run build`).
+- `gd` or `imagick` is required only when uploading/converting images. The API
+  boots without it; upload endpoints return a clear runtime error instead.
 
-```sh
-php -v
-composer -V
-```
-
-If either command is unavailable, detect the user's operating system and install the prerequisites with the appropriate command:
-
-macOS:
+Install dependencies with the committed lock file:
 
 ```sh
-/bin/bash -c "$(curl -fsSL https://php.new/install/mac/8.5)"
+composer install
 ```
 
-Windows PowerShell:
+Do **not** run arbitrary remote install scripts. If PHP/Composer is missing,
+install it with your operating system's package manager or the official
+installer from <https://www.php.net/downloads> / <https://getcomposer.org/download/>.
 
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://php.new/install/windows/8.5'))
-```
-
-Linux:
+## Local setup
 
 ```sh
-/bin/bash -c "$(curl -fsSL https://php.new/install/linux/8.5)"
+cp .env.example .env
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve
 ```
 
-After installation, ask the user to restart their terminal. If the agent needs the restarted shell to continue, ask the user to reopen their terminal and rerun their original prompt.
-
-## Agent Setup
-
-Install Laravel Boost from the application root before making application changes:
+Tests use an in-memory SQLite database configured in `phpunit.xml`, so no local
+database is needed:
 
 ```sh
-composer require laravel/boost --dev
-php artisan boost:install
+php artisan test
 ```
 
-Boost replaces these bootstrap instructions with guidelines tailored to the application. After installation, read `AGENTS.md` again and continue with the user's original request using the generated guidelines.
-</laravel-boost-guidelines>
+Run a single suite/file while iterating:
+
+```sh
+php artisan test tests/Feature/OrderTransitionTest.php
+php artisan test --filter=CommissionTest
+```
+
+## Project layout
+
+- `app/Http/Controllers/Api` — customer, auth, webhook and influencer endpoints.
+- `app/Http/Controllers/Admin` — admin/employee endpoints guarded by permissions.
+- `app/Services` — business logic (`OrderService`, `PaymentService`,
+  `WalletService`, `ShippingService`, `PricingService`, …). Keep financial
+  rules here, not in controllers.
+- `app/Contracts` + `app/Services/*Gateways` — pluggable payment/shipping
+  gateway interfaces and the manual/EasyKash skeletons.
+- `config/store.php`, `config/payments.php`, `config/services.php` — runtime
+  configuration and feature flags.
+- `routes/api.php` — every API route (auto-prefixed with `/api`).
+- `database/migrations`, `database/factories`, `database/seeders` — schema and
+  fixtures. `RolesAndPermissionsSeeder` defines permissions and roles.
+
+## Conventions
+
+- Keep the public API contract stable unless a change is required and documented.
+- Never use `$request->all()` in create/update actions; validate explicitly.
+- Never interpolate user input into raw SQL. Use query builder bindings.
+- Financial state changes (payments, commissions, wallets, withdrawals) must run
+  inside `DB::transaction(...)` and use `lockForUpdate()` for the rows involved.
+- Preserve the existing Arabic user-facing messages. Validation/HTTP messages
+  are translated by `TranslateMessages` based on `Accept-Language`.
+- Use Form Requests or inline `$request->validate([...])`; do not trust mass
+  assignment beyond each model's `$fillable`.
+- Runtime files (`storage/`, `bootstrap/cache/`) are ignored. Never commit them.
+- Add a feature test for every behavioural change in a financial or sensitive
+  flow (`tests/Feature`).
+
+## Review checklist
+
+1. `php -l` every edited PHP file.
+2. `php artisan test` passes.
+3. Routes/middleware/config changes are consistent (`php artisan route:list`).
+4. Migrations are reversible (`down()` implemented).
+5. No secrets, `.env`, logs, caches, sessions or uploaded files are committed.
+
+## Documentation
+
+- `docs/API.md` — endpoint reference, auth, roles, order/commission/withdrawal
+  flows, idempotency, webhooks and environment variables.
+- `postman/For_You_API.postman_collection.json` — importable Postman
+  collection (Collection v2.1).
+- `README.md` — project overview and quick start.
