@@ -66,6 +66,26 @@ class Product extends Model
         return $this->discount_price ?? $this->price;
     }
 
+     /**
+     * السعر النهائي الفعّال: الخصم بيشتغل بس لو 0 < discount < price
+     */
+    public function getEffectivePriceAttribute(): float
+    {
+        $price = (float) $this->price;
+        $discount = $this->discount_price !== null ? (float) $this->discount_price : null;
+
+        if ($discount !== null && $discount > 0 && $discount < $price) {
+            return $discount;
+        }
+
+        return $price;
+    }
+
+    public function getHasDiscountAttribute(): bool
+    {
+        return $this->effective_price < (float) $this->price;
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
