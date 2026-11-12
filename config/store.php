@@ -12,8 +12,10 @@ return [
         'free_over'  => env('SHIPPING_FREE_OVER') !== null ? (float) env('SHIPPING_FREE_OVER') : null,
         // أسعار خاصة بالمدن: 'القاهرة' => 40
         'city_rates' => [],
+    
     ],
-
+    // لازم اللي وافق على السحب غير اللي نفّذ التحويل (مبدأ الشخصين). خليه false لو عندك أدمن واحد بس
+    'withdrawal_four_eyes' => env('WITHDRAWAL_FOUR_EYES', true),
     // لازم الدفع يتأكد قبل إنشاء الشحنة
     'require_payment_before_shipping' => env('REQUIRE_PAYMENT_BEFORE_SHIPPING', true),
 ];
