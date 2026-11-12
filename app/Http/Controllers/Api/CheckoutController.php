@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cart;
 use App\Services\CartService;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class CheckoutController extends Controller
@@ -16,54 +18,46 @@ class CheckoutController extends Controller
     ) {}
 
     /** يحسب الإجمالي والشحن والخصم من غير ما ينشئ طلب */
-  public function quote(Request $request)
-{
-    $data = $request->validate([
-        'address_id'  => 'nullable|integer',
-        'coupon_code' => 'nullable|string|max:50',
-        'city'        => 'nullable|string|max:100',
-        'ref'         => 'nullable|string|max:32',
-    ]);
+    public function quote(Request $request)
+    {
+        $data = $request->validate([
+            'address_id'  => 'nullable|integer',
+            'coupon_code' => 'nullable|string|max:50',
+            'city'        => 'nullable|string|max:100',
+            'ref'         => 'nullable|string|max:32',
+        ]);
 
-    // تحديد المدينة من العنوان المحفوظ إذا تم إرسال address_id
-    if (!empty($data['address_id'])) {
-        $data['city'] = $request->user()
-            ->addresses()
-            ->findOrFail($data['address_id'])
-            ->city;
-    }
-
-    $data['items'] = $this->cartItems($request);
-
-    if (empty($data['items'])) {
-        return response()->json([
-            'message' => 'السلة فارغة',
-        ], 422);
-    }
-
-    try {
-        $quote = $this->orderService->quote(
-            $request->user(),
-            $data
-        );
-
-        if (!empty($data['ref'])) {
-            $quote['ref_applied'] = $this->orderService->isRefApplicable(
-                $request->user(),
-                $data['ref'],
-                $data['items']
-            );
+        if (!empty($data['address_id'])) {
+            $data['city'] = $request->user()
+                ->addresses()
+                ->findOrFail($data['address_id'])
+                ->city;
         }
 
-        return response()->json($quote);
+        $data['items'] = $this->cartItems($request);
 
-    } catch (\DomainException $e) {
-        return response()->json([
-            'message' => $e->getMessage(),
-        ], 422);
+        if (empty($data['items'])) {
+            return response()->json(['message' => 'السلة فارغة'], 422);
+        }
+
+        try {
+            $quote = $this->orderService->quote($request->user(), $data);
+
+            if (!empty($data['ref'])) {
+                $quote['ref_applied'] = $this->orderService->isRefApplicable(
+                    $request->user(),
+                    $data['ref'],
+                    $data['items']
+                );
+            }
+
+            return response()->json($quote);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
-}
-    /** ينشئ الطلب من السلة ويفضيها */
+
+    /** ينشئ الطلب من السلة ويفضيها — محمي ضد التكرار */
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -80,7 +74,6 @@ class CheckoutController extends Controller
             'payment_method'   => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
         ]);
 
-        // لو العميل اختار عنوان محفوظ، بياناته بتحل محل الحقول اليدوية
         if (!empty($data['address_id'])) {
             $address = $request->user()->addresses()->findOrFail($data['address_id']);
 
@@ -91,14 +84,35 @@ class CheckoutController extends Controller
             $data['country']          = $address->country;
         }
 
-        $data['items'] = $this->cartItems($request);
+        // ===== طبقة 1: Idempotency-Key =====
+        // الضغط المزدوج من نفس الجهاز بين نفس النتيجة بدل ما ينشئ طلبين
+        $lock = null;
+        $idemCacheKey = null;
 
-        if (empty($data['items'])) {
-            return response()->json(['message' => 'السلة فارغة'], 422);
+        if ($idemKey = $request->header('Idempotency-Key')) {
+            $idemCacheKey = 'checkout:' . $request->user()->id . ':' . hash('sha256', $idemKey);
+
+            if ($cached = Cache::get($idemCacheKey)) {
+                return response()->json($cached, 200); // نفس نتيجة أول محاولة
+            }
+
+            $lock = Cache::lock($idemCacheKey . ':lock', 30);
+            if (!$lock->get()) {
+                // نفس المفتاح قيد المعالجة — العميل يعيد المحاولة وياخد النتيجة المخزنة
+                return response()->json(['message' => 'الطلب قيد المعالجة، حاول بعد ثوانٍ'], 409);
+            }
         }
 
         try {
+            // ===== طبقة 2: قفل السلة جوه الترانزاكشن =====
+            // أول طلب بيقفل صف السلة، والتاني بيستنى لحد الـ commit وبعدين يلاقيها فاضية
             $order = DB::transaction(function () use ($request, $data) {
+                $data['items'] = $this->lockedCartItems($request);
+
+                if (empty($data['items'])) {
+                    throw new \DomainException('السلة فارغة');
+                }
+
                 $order = $this->orderService->createOrder($request->user(), $data);
                 $this->cartService->clear($request->user());
 
@@ -106,14 +120,38 @@ class CheckoutController extends Controller
             });
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } finally {
+            $lock?->release();
         }
 
-        return response()->json(
-    $order->toArray() + ['ref_applied' => $order->promotional_link_id !== null],
-    201
-);
+        $payload = $order->toArray()
+            + ['ref_applied' => $order->promotional_link_id !== null];
+
+        if ($idemCacheKey) {
+            Cache::put($idemCacheKey, $payload, now()->addDays(7));
+        }
+
+        return response()->json($payload, 201);
     }
 
+    /**
+     * قراءة السلة مع قفل الصف — تتنادى جوه Transaction فقط.
+     * ترتيب الأقفال هنا: Cart → items → (بعدين createOrder بيقفل Products).
+     */
+    protected function lockedCartItems(Request $request): array
+    {
+        $cart = $this->cartService->getCart($request->user());
+
+        // قفل صف السلة: أي checkout متزامن لنفس المستخدم هيستنى هنا
+        Cart::whereKey($cart->id)->lockForUpdate()->firstOrFail();
+
+        return $cart->items()->lockForUpdate()->get()
+            ->map(fn ($i) => ['product_id' => $i->product_id, 'quantity' => $i->quantity])
+            ->values()
+            ->all();
+    }
+
+    /** قراءة عادية للسلة — للـ quote بس (مفيش كتابة فمفيش سباق) */
     protected function cartItems(Request $request): array
     {
         return $this->cartService->getCart($request->user())
