@@ -97,7 +97,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
     Route::prefix('auth')->group(function () {
         Route::get('me', [AuthController::class, 'me']);
         Route::post('logout', [AuthController::class, 'logout']);
-        Route::match(['put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
+       // routes/api.php — داخل auth group
+        Route::match(['post', 'put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
         // throttle:change-password عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
         Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:change-password');
     });
@@ -192,7 +193,9 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         // ---- Customers ----
         Route::get('customers', [CustomerController::class, 'index'])->middleware('permission:customers.view,customers.manage');
         Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:customers.view,customers.manage');
-        Route::patch('customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])->middleware('permission:customers.manage');
+        Route::match(['post', 'put', 'patch'], 'customers/{customer}', [CustomerController::class, 'update'])
+    ->middleware('permission:customers.manage');
+      Route::patch('customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])->middleware('permission:customers.manage');
 
         // ---- Payments ----
         Route::get('payments', [PaymentController::class, 'index'])->middleware('permission:payments.view,payments.manage');
