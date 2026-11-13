@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\InfluencerCommission;
 use App\Models\InfluencerWallet;
 use App\Models\Order;
+use App\Models\User;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -289,6 +290,15 @@ class InfluencerCommissionService
             }
 
             if (!$order || $order->status !== 'delivered') {
+                return false;
+            }
+
+            // المؤثر المحذوف (soft delete) لا تُضاف له أموال جديدة.
+            $influencer = User::withTrashed()
+                ->whereKey($locked->influencer_id)
+                ->first();
+
+            if (!$influencer || $influencer->trashed()) {
                 return false;
             }
 

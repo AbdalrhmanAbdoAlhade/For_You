@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PromotionalLink extends Model
 {
-    protected $fillable = [
+    use HasFactory;
+
+protected $fillable = [
         'influencer_id',
         'product_id',
         'code',

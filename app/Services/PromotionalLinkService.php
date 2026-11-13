@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PromotionalLink;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Cache;
 
@@ -11,21 +12,32 @@ class PromotionalLinkService
 {
     public function generate(User $influencer, ?int $productId = null): PromotionalLink
     {
-        $code = $this->generateUniqueCode();
-
         $baseUrl = config('app.frontend_url', 'https://yourstore.com');
 
-        $fullUrl = $productId
-            ? "{$baseUrl}/product/{$productId}?ref={$code}"
-            : "{$baseUrl}?ref={$code}";
+        // إعادة المحاولة عند تصادم الكود مع طلب متزامن (unique constraint).
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $code = $this->generateUniqueCode();
 
-        return PromotionalLink::create([
-            'influencer_id' => $influencer->id,
-            'product_id'    => $productId,
-            'code'          => $code,
-            'full_url'      => $fullUrl,
-            'is_active'     => true,
-        ]);
+            $fullUrl = $productId
+                ? "{$baseUrl}/product/{$productId}?ref={$code}"
+                : "{$baseUrl}?ref={$code}";
+
+            try {
+                return PromotionalLink::create([
+                    'influencer_id' => $influencer->id,
+                    'product_id'    => $productId,
+                    'code'          => $code,
+                    'full_url'      => $fullUrl,
+                    'is_active'     => true,
+                ]);
+            } catch (UniqueConstraintViolationException $e) {
+                if ($attempt === 3) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new \RuntimeException('تعذر إنشاء كود رابط ترويجي فريد.');
     }
 
       /**
@@ -49,8 +61,14 @@ class PromotionalLinkService
         $link = $this->findActive($code);
 
         if ($link) {
+            $ttl = max(1, (int) config('store.link_click_ttl_minutes', 60));
+
             $isNewVisit = !$fingerprint
-                || Cache::add("link_click:{$link->id}:{$fingerprint}", 1, now()->addHour());
+                || Cache::add(
+                    "link_click:{$link->id}:{$fingerprint}",
+                    1,
+                    now()->addMinutes($ttl)
+                );
 
             if ($isNewVisit) {
                 $link->increment('clicks');

@@ -4,13 +4,62 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\Payment;
+use App\Services\PaymentGateways\PaymentGatewayManager;
 use Illuminate\Support\Facades\DB;
 
 class PaymentService
 {
     public function __construct(
-        protected OrderService $orderService
+        protected OrderService $orderService,
+        protected PaymentGatewayManager $gateways
     ) {}
+
+    /**
+     * بدء أو إعادة محاولة الدفع لطلب عبر بوابة معينة.
+     *
+     * @return array<string, mixed> بيانات البوابة (payment_url / reference / …)
+     */
+    public function initiate(Order $order, ?string $gateway = null): array
+    {
+        return DB::transaction(function () use ($order, $gateway) {
+            $order = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if (in_array($order->status, ['cancelled', 'returned'], true)) {
+                throw new \DomainException('لا يمكن الدفع لطلب ملغي أو مرتجع');
+            }
+
+            $payment = Payment::where('order_id', $order->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$payment) {
+                throw new \DomainException('لا يوجد سجل دفع لهذا الطلب');
+            }
+
+            if (in_array($payment->status, ['paid', 'refunded'], true)) {
+                throw new \DomainException('هذا الطلب مدفوع بالفعل');
+            }
+
+            // الافتراضي: نفس طريقة الدفع المسجلة على الطلب.
+            $gateway = $gateway
+                ?: ($payment->payment_method ?: (string) config('payments.default'));
+
+            $driver = $this->gateways->driver($gateway);
+
+            if ($payment->payment_method !== $driver->name()) {
+                $payment->update(['payment_method' => $driver->name()]);
+            }
+
+            $result = $driver->initiate($order);
+
+            return [
+                'order_id'     => $order->id,
+                'order_number' => $order->order_number,
+                'payment_id'   => $payment->id,
+                ...$result,
+            ];
+        });
+    }
 
     /**
      * نقطة دخول واحدة لتحديث حالة الدفع.
@@ -70,10 +119,20 @@ class PaymentService
                 );
             }
 
-            if ($payment->status !== 'pending') {
+            // نسمح بإعادة المحاولة: failed → paid.
+            if (!in_array($payment->status, ['pending', 'failed'], true)) {
                 throw new \DomainException(
-                    'يمكن تأكيد الدفعات المعلقة فقط'
+                    'يمكن تأكيد الدفعات المعلقة أو الفاشلة فقط'
                 );
+            }
+
+            if (
+                $transactionId !== null
+                && Payment::where('transaction_id', $transactionId)
+                    ->whereKeyNot($payment->id)
+                    ->exists()
+            ) {
+                throw new \DomainException('رقم عملية الدفع مستخدم بالفعل');
             }
 
             $payment->update([
@@ -92,10 +151,10 @@ class PaymentService
     }
 
     /**
-     * الفشل هنا نهائي:
-     * - يغير حالة الدفع إلى failed.
-     * - يلغي الطلب إذا لم يصل لمرحلة الشحن.
-     * - يعيد المخزون من خلال OrderService داخل نفس Transaction.
+     * تسجيل فشل محاولة دفع:
+     * - يغير حالة الدفع إلى failed فقط.
+     * - لا يلغي الطلب؛ العميل قد يعيد المحاولة، والطلب غير المدفوع
+     *   يُلغى تلقائيًا لاحقًا عبر orders:expire-unpaid بعد انتهاء المهلة.
      *
      * يجب عدم استدعاء هذه الدالة عند فشل محاولة دفع مؤقتة
      * إذا كان مسموحًا للعميل إعادة المحاولة.
@@ -144,15 +203,6 @@ class PaymentService
                     'gateway_response' => $gatewayResponse,
                 ]);
             }
-
-            // الطلب سبق إلغاؤه أو إرجاعه؛ لا نعيد المخزون مرة أخرى.
-            if (in_array($order->status, ['cancelled', 'returned'], true)) {
-                return $payment->fresh();
-            }
-
-            // الإلغاء يستعيد المخزون ويعيد استخدام الكوبون
-            // ويعكس العمولات من خلال OrderService.
-            $this->orderService->updateStatus($order, 'cancelled');
 
             return $payment->fresh();
         });

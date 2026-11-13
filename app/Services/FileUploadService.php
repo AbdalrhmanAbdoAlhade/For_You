@@ -6,17 +6,35 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\ImageManager;
-use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Drivers\Gd\Driver as GdDriver;
+use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
 
 class FileUploadService
 {
     private const WEBP_QUALITY = 85;
 
-    private ImageManager $imageManager;
+    private ?ImageManager $imageManager = null;
 
-    public function __construct()
+    /**
+     * Lazily resolve the image manager so controllers can be constructed on
+     * servers without the GD extension. The dependency is only required when
+     * an image is actually uploaded.
+     */
+    private function imageManager(): ImageManager
     {
-        $this->imageManager = new ImageManager(new Driver());
+        if ($this->imageManager === null) {
+            if (extension_loaded('gd')) {
+                $this->imageManager = new ImageManager(new GdDriver());
+            } elseif (extension_loaded('imagick')) {
+                $this->imageManager = new ImageManager(new ImagickDriver());
+            } else {
+                throw new \RuntimeException(
+                    'The GD or Imagick PHP extension is required to process image uploads.'
+                );
+            }
+        }
+
+        return $this->imageManager;
     }
 
     /**
@@ -26,7 +44,7 @@ class FileUploadService
         UploadedFile $file,
         string $folder = 'uploads'
     ): string {
-        $image = $this->imageManager->read($file->getRealPath());
+        $image = $this->imageManager()->read($file->getRealPath());
 
         // Preserve original dimensions and aspect ratio.
         $encoded = $image->toWebp(self::WEBP_QUALITY);

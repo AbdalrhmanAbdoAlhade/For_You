@@ -90,6 +90,16 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('social', function (Request $request) {
             return Limit::perMinute(20)->by('social:ip:' . $request->ip());
         });
+
+        // Track: الزيارات العامة محتاجة سقف أعلى من API العادي لكنه محدود.
+        RateLimiter::for('track', function (Request $request) {
+            return Limit::perMinute(120)->by('track:ip:' . $request->ip());
+        });
+
+        // Webhooks: سقف عالي لكنه محمي بالـ signature. الـ gateway نفسه بيبعت من IPs ثابتة.
+        RateLimiter::for('webhook', function (Request $request) {
+            return Limit::perMinute(120)->by('webhook:' . $request->ip());
+        });
         // ==================== Frontend Password Reset URL ====================
 
         ResetPassword::createUrlUsing(function ($user, string $token) {
