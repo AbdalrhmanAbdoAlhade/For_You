@@ -174,14 +174,14 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('categories', [CategoryController::class, 'index'])->middleware('permission:categories.view');
         Route::get('categories/{category}', [CategoryController::class, 'show'])->middleware('permission:categories.view');
         Route::post('categories', [CategoryController::class, 'store'])->middleware('permission:categories.create');
-        Route::match(['put', 'patch'], 'categories/{category}', [CategoryController::class, 'update'])->middleware('permission:categories.edit');
+        Route::match(['put', 'post'], 'categories/{category}', [CategoryController::class, 'update'])->middleware('permission:categories.edit');
         Route::delete('categories/{category}', [CategoryController::class, 'destroy'])->middleware('permission:categories.delete');
 
         // ---- Products ----
         Route::get('products', [ProductController::class, 'index'])->middleware('permission:products.view');
         Route::get('products/{product}', [ProductController::class, 'show'])->middleware('permission:products.view');
         Route::post('products', [ProductController::class, 'store'])->middleware('permission:products.create');
-        Route::match(['put', 'patch'], 'products/{product}', [ProductController::class, 'update'])->middleware('permission:products.edit');
+        Route::match(['put', 'post'], 'products/{product}', [ProductController::class, 'update'])->middleware('permission:products.edit');
         Route::delete('products/{product}', [ProductController::class, 'destroy'])->middleware('permission:products.delete');
 
         // ---- Orders ----
@@ -252,7 +252,7 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('coupons', [CouponController::class, 'index'])->middleware('permission:coupons.view');
         Route::get('coupons/{coupon}', [CouponController::class, 'show'])->middleware('permission:coupons.view');
         Route::post('coupons', [CouponController::class, 'store'])->middleware('permission:coupons.create');
-        Route::match(['put', 'patch'], 'coupons/{coupon}', [CouponController::class, 'update'])->middleware('permission:coupons.edit');
+        Route::match(['put', 'post'], 'coupons/{coupon}', [CouponController::class, 'update'])->middleware('permission:coupons.edit');
         Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->middleware('permission:coupons.delete');
 
         // ---- Reports ----
