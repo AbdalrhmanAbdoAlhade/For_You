@@ -21,6 +21,8 @@ class ShippingController extends Controller
     {
         $request->validate([
             'status' => 'nullable|in:' . self::STATUSES,
+            'shipping_company' => 'nullable|string|max:100',
+            'search' => 'nullable|string|max:100',
             'from'   => 'nullable|date',
             'to'     => 'nullable|date|after_or_equal:from',
         ]);

@@ -13,6 +13,10 @@ class InfluencerWalletController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'search' => 'nullable|string|max:100',
+        ]);
+
         $wallets = InfluencerWallet::with('influencer:id,name,email,phone')
             ->when($request->search, function ($q, $s) {
                 $q->whereHas('influencer', function ($u) use ($s) {

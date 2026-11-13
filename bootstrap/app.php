@@ -26,6 +26,30 @@ return Application::configure(basePath: dirname(__DIR__))
         'permission' => \App\Http\Middleware\CheckPermission::class,
         'active'     => \App\Http\Middleware\EnsureUserIsActive::class,
     ]);
+
+    /*
+     * خلف Cloudflare / Load Balancer: بدون trustProxies، $request->ip()
+     * بيرجّع IP البروكسي وكل الـ rate limiters المبنية على IP بتتشارك.
+     * القيمة فاضية افتراضيًا (مفيش بروكسي موثوق) لحد ما تتضبط في .env.
+     */
+    $trustedProxies = env('TRUSTED_PROXIES');
+
+    if ($trustedProxies !== null && trim((string) $trustedProxies) !== '') {
+        $proxies = trim((string) $trustedProxies) === '*'
+            ? '*'
+            : array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) $trustedProxies)
+            )));
+
+        $middleware->trustProxies(
+            at: $proxies,
+            headers: Request::HEADER_X_FORWARDED_FOR
+                | Request::HEADER_X_FORWARDED_HOST
+                | Request::HEADER_X_FORWARDED_PORT
+                | Request::HEADER_X_FORWARDED_PROTO
+        );
+    }
 })
 
     ->withExceptions(function (Exceptions $exceptions): void {

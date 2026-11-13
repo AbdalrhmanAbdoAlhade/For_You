@@ -11,40 +11,51 @@ class ProductController extends Controller
 {
     public function index(Request $request)
     {
-        $perPage = min(max((int) $request->get('per_page', 15), 1), 50);
+        // فلاتر عامة: لازم تتحقق قبل الاستخدام عشان array متكسرش الـ query.
+        $filters = $request->validate([
+            'search'      => 'nullable|string|max:100',
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'featured'    => 'nullable|boolean',
+            'min_price'   => 'nullable|numeric|min:0',
+            'max_price'   => 'nullable|numeric|min:0',
+            'sort'        => 'nullable|in:price_asc,price_desc,newest,oldest',
+            'per_page'    => 'nullable|integer|min:1',
+        ]);
+
+        // نحافظ على السلوك القديم: القيمة بتتقص عند 50 بدل ما ترفض الطلب.
+        $perPage = min(max((int) ($filters['per_page'] ?? 15), 1), 50);
+        $search = $filters['search'] ?? null;
 
         $products = Product::active()
             ->with('category')
-            ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
-            ->when($request->search, function ($q) use ($request) {
-                $q->where(function ($q) use ($request) {
-                    $q->where('name', 'like', "%{$request->search}%")
-                        ->orWhere('description', 'like', "%{$request->search}%")
-                        ->orWhere('name_en', 'like', "%{$request->search}%");
+            ->when($filters['category_id'] ?? null, fn ($q, $id) => $q->where('category_id', $id))
+            ->when($search, function ($q) use ($search) {
+                $q->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('name_en', 'like', "%{$search}%");
                 });
             })
             // featured لازم يكون boolean صريح
             ->when(
-                $request->has('featured') && $request->boolean('featured'),
+                ($filters['featured'] ?? false) === true,
                 fn ($q) => $q->featured()
             )
             // فلتر السعر على السعر الفعّال (خصم لو موجود)
-            ->when($request->min_price, function ($q) use ($request) {
-                $min = (float) $request->min_price;
+            ->when(isset($filters['min_price']), function ($q) use ($filters) {
                 $q->whereRaw(
                     'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) >= ?',
-                    [$min]
+                    [(float) $filters['min_price']]
                 );
             })
-            ->when($request->max_price, function ($q) use ($request) {
-                $max = (float) $request->max_price;
+            ->when(isset($filters['max_price']), function ($q) use ($filters) {
                 $q->whereRaw(
                     'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) <= ?',
-                    [$max]
+                    [(float) $filters['max_price']]
                 );
             })
-            ->when($request->sort, function ($q) use ($request) {
-                match ($request->sort) {
+            ->when($filters['sort'] ?? null, function ($q) use ($filters) {
+                match ($filters['sort']) {
                     'price_asc'  => $q->orderByRaw(
                         'COALESCE(CASE WHEN discount_price > 0 AND discount_price < price THEN discount_price ELSE NULL END, price) ASC'
                     ),

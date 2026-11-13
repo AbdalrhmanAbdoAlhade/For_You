@@ -80,7 +80,7 @@ Route::get('influencers', [StoreInfluencerController::class, 'index']);
 Route::get('influencers/{id}/products', [StoreInfluencerController::class, 'products']);
 
 // ---- تتبع الرابط الترويجي (بيزود الـ clicks) ----
-Route::get('track/{code}', [TrackController::class, 'show'])->middleware('throttle:api');
+Route::get('track/{code}', [TrackController::class, 'show'])->middleware('throttle:track');
 
 // ---- Webhooks (بدون Sanctum: التوقيع هو وسيلة التحقق) ----
 Route::post('webhooks/payments/{gateway}', [PaymentWebhookController::class, 'handle'])
@@ -116,6 +116,7 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::post('/', [OrderController::class, 'store']);
         Route::get('/', [OrderController::class, 'myOrders']);
         Route::post('{id}/cancel', [OrderController::class, 'cancel']);
+        Route::post('{id}/pay', [OrderController::class, 'pay']);
         Route::get('{id}', [OrderController::class, 'show']);
     });
     // ---- Cart ----

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\InfluencerCommission;
 use App\Models\InfluencerWallet;
 use App\Models\Order;
+use App\Models\User;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +21,12 @@ class InfluencerCommissionService
      *
      * يجب استدعاء هذه العملية عند تحقق البيع، وليس بمجرد إنشاء الطلب.
      *
-     * NULL في commission_percentage تعني أن المنتج غير مؤهل للعمولة.
+     * NULL في order_items.commission_percentage تعني أن المنتج غير مؤهل للعمولة
+     * (مش مربوط بمؤثر، أو الرابط خاص بمنتج تاني).
      * أما 0 فتعني أن المنتج مؤهل لكن نسبة العمولة صفر.
+     *
+     * ملاحظة: NULL في pivot influencer_product معناه "استخدم النسبة الافتراضية"،
+     * وبيتم تحويله لنسبة فعلية وقت إنشاء الطلب عبر resolvePercentage().
      *
      * @return Collection<int, InfluencerCommission>
      */
@@ -169,6 +174,36 @@ class InfluencerCommissionService
     }
 
     /**
+     * نسبة العمولة الفعلية القادمة من pivot influencer_product.
+     *
+     * null / '' / قيمة غير صالحة = النسبة الافتراضية من الإعدادات.
+     * 0 = مؤهل بنسبة صفر (مش افتراضي).
+     */
+    public static function resolvePercentage(mixed $value): float
+    {
+        $default = round(
+            (float) config('services.influencer.default_commission', 10),
+            2
+        );
+
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        if (!is_numeric($value)) {
+            return $default;
+        }
+
+        $percentage = (float) $value;
+
+        if ($percentage < 0 || $percentage > 100) {
+            return $default;
+        }
+
+        return round($percentage, 2);
+    }
+
+    /**
      * عدد أيام الانتظار قبل إتاحة العمولة.
      */
     protected function holdDays(): int
@@ -289,6 +324,15 @@ class InfluencerCommissionService
             }
 
             if (!$order || $order->status !== 'delivered') {
+                return false;
+            }
+
+            // المؤثر المحذوف (soft delete) لا تُضاف له أموال جديدة.
+            $influencer = User::withTrashed()
+                ->whereKey($locked->influencer_id)
+                ->first();
+
+            if (!$influencer || $influencer->trashed()) {
                 return false;
             }
 

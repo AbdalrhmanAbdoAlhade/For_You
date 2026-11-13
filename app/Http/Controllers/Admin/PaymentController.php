@@ -20,6 +20,8 @@ class PaymentController extends Controller
     {
         $request->validate([
             'status' => 'nullable|in:pending,paid,failed,refunded',
+            'payment_method' => 'nullable|string|max:50',
+            'search' => 'nullable|string|max:100',
             'from'   => 'nullable|date',
             'to'     => 'nullable|date|after_or_equal:from',
         ]);

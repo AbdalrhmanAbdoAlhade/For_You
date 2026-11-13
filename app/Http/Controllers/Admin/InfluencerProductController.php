@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\PromotionalLink;
 use App\Models\User;
@@ -65,6 +67,12 @@ class InfluencerProductController extends Controller
 
         $influencer->influencerProducts()->updateExistingPivot($product->id, $data);
 
+        AuditLog::record('influencer_product.updated', $product, [
+            'influencer_id' => $influencer->id,
+            'changes'       => $data,
+        ]);
+        HomeController::flush();
+
         return response()->json(['message' => 'تم تعديل الربط', 'link' => $this->show($influencer, $product)]);
     }
 
@@ -83,6 +91,11 @@ class InfluencerProductController extends Controller
         PromotionalLink::where('influencer_id', $influencer->id)
             ->where('product_id', $product->id)
             ->update(['is_active' => false]);
+
+        AuditLog::record('influencer_product.detached', $product, [
+            'influencer_id' => $influencer->id,
+        ]);
+        HomeController::flush();
 
         return response()->json(['message' => 'تم فصل المنتج عن المؤثر']);
     }
@@ -103,6 +116,13 @@ class InfluencerProductController extends Controller
             'commission_percentage' => $data['commission_percentage'] ?? null,
             'is_active'             => $data['is_active'] ?? true,
         ]);
+
+        AuditLog::record('influencer_product.attached', $product, [
+            'influencer_id'         => $influencer->id,
+            'commission_percentage' => $data['commission_percentage'] ?? null,
+            'is_active'             => $data['is_active'] ?? true,
+        ]);
+        HomeController::flush();
 
         return response()->json([
             'message' => 'تم ربط المنتج بالمؤثر',

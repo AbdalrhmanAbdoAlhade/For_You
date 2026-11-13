@@ -13,6 +13,7 @@ class PaymentGatewayManager
 
         return match ($name) {
             'easykash' => app(EasyKashGateway::class),
+            'manual'   => app(ManualPaymentGateway::class),
             default    => throw new \DomainException('بوابة الدفع غير مدعومة'),
         };
     }

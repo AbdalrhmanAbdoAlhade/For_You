@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\Shipping;
 use App\Services\ShippingGateways\ShippingGatewayManager;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class ShippingService
@@ -44,13 +46,26 @@ class ShippingService
         $driver = $this->gateways->driver();
         $result = $driver->createShipment($order, $data);
 
-        return Shipping::create([
-            'order_id'         => $order->id,
-            'shipping_company' => $result['shipping_company'],
-            'tracking_number'  => $result['tracking_number'],
-            'shipping_address' => $data['shipping_address'] ?? $order->shipping_address,
-            'status'           => $result['status'],
-        ]);
+        try {
+            return DB::transaction(function () use ($order, $data, $result) {
+                // قفل الطلب لمنع إنشاء شحنتين متزامنتين لنفس الطلب.
+                Order::whereKey($order->id)->lockForUpdate()->first();
+
+                if (Shipping::where('order_id', $order->id)->exists()) {
+                    throw new \DomainException('للطلب شحنة بالفعل');
+                }
+
+                return Shipping::create([
+                    'order_id'         => $order->id,
+                    'shipping_company' => $result['shipping_company'],
+                    'tracking_number'  => $result['tracking_number'],
+                    'shipping_address' => $data['shipping_address'] ?? $order->shipping_address,
+                    'status'           => $result['status'],
+                ]);
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            throw new \DomainException('للطلب شحنة بالفعل');
+        }
     }
 
     /**
@@ -133,6 +148,22 @@ class ShippingService
         };
 
         if (!$target) {
+            return;
+        }
+
+        /*
+         * إرجاع شحنة لطلب مدفوع: OrderService بيرفض تحويل الطلب لـ returned
+         * قبل استرداد الدفعة. هنا بنسمح بتحديث الشحنة نفسها ونسجل الحالة
+         * للمراجعة اليدوية بدل ما نرجّع 422 للبوابة وتفضل تعيد الإرسال.
+         */
+        if ($target === 'returned'
+            && $order->payment()->where('status', 'paid')->exists()) {
+            AuditLog::record('shipping.returned.needs_refund', $order, [
+                'shipping_id' => $shipping->id,
+                'status'      => $status,
+                'needs_refund' => true,
+            ]);
+
             return;
         }
 

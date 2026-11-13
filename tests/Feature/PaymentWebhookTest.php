@@ -100,7 +100,7 @@ class PaymentWebhookTest extends TestCase
         $this->assertSame('pending', $payment->fresh()->status);
     }
 
-    public function test_failed_webhook_marks_payment_failed_and_cancels_order(): void
+    public function test_failed_webhook_marks_payment_failed_but_keeps_order_open(): void
     {
         [$order, $payment] = $this->pendingOrder();
 
@@ -116,7 +116,62 @@ class PaymentWebhookTest extends TestCase
             ->assertJsonPath('status', 'failed');
 
         $this->assertSame('failed', $payment->fresh()->status);
-        $this->assertSame('cancelled', $order->fresh()->status);
+        // الطلب يفضل مفتوحًا حتى يقرر العميل إعادة المحاولة أو تنتهي المهلة.
+        $this->assertSame('new', $order->fresh()->status);
+    }
+
+    public function test_failed_payment_can_be_retried_and_marked_paid(): void
+    {
+        [$order, $payment] = $this->pendingOrder();
+
+        $this->signedWebhook([
+            'order_number' => $order->order_number,
+            'amount'       => 100,
+            'status'       => 'failed',
+            'message'      => 'Card declined',
+        ])->assertOk();
+
+        $this->assertSame('failed', $payment->fresh()->status);
+
+        $this->signedWebhook([
+            'order_number'   => $order->order_number,
+            'amount'         => 100,
+            'status'         => 'paid',
+            'transaction_id' => 'EK-TXN-RETRY',
+        ])
+            ->assertOk()
+            ->assertJsonPath('status', 'paid');
+
+        $this->assertSame('paid', $payment->fresh()->status);
+        $this->assertSame('EK-TXN-RETRY', $payment->fresh()->transaction_id);
+        $this->assertSame('confirmed', $order->fresh()->status);
+    }
+
+    public function test_webhook_for_unknown_order_is_ignored_with_200(): void
+    {
+        $this->signedWebhook([
+            'order_number'   => 'ORD-UNKNOWN',
+            'amount'         => 100,
+            'status'         => 'paid',
+            'transaction_id' => 'EK-TXN-UNKNOWN',
+        ])
+            ->assertOk()
+            ->assertJsonPath('status', 'ignored');
+    }
+
+    public function test_failed_webhook_with_mismatched_amount_is_rejected(): void
+    {
+        [$order, $payment] = $this->pendingOrder();
+
+        $this->signedWebhook([
+            'order_number' => $order->order_number,
+            'amount'       => 10,
+            'status'       => 'failed',
+            'message'      => 'Card declined',
+        ])->assertStatus(422);
+
+        $this->assertSame('pending', $payment->fresh()->status);
+        $this->assertSame('new', $order->fresh()->status);
     }
 
     /**
@@ -130,9 +185,10 @@ class PaymentWebhookTest extends TestCase
         ]);
 
         $payment = Payment::factory()->create([
-            'order_id' => $order->id,
-            'amount'   => 100,
-            'status'   => 'pending',
+            'order_id'       => $order->id,
+            'payment_method' => 'easykash',
+            'amount'         => 100,
+            'status'         => 'pending',
         ]);
 
         return [$order, $payment];

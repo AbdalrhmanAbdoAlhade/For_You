@@ -38,14 +38,16 @@ class AppServiceProvider extends ServiceProvider
         // مبدأ عام: الـ IP سقف خلفي عريض (عشان مستخدمي NAT/شبكات الموبايل)،
         // والحماية الأساسية per-account على الإيميل.
 
-        // Login: السقف الرئيسي على الإيميل، والـ IP سقف خلفي
+        // Login: سقف على (الإيميل + IP) وسقف خلفي للشبكة.
+        // ملاحظة: مفيش قفل مطلق على الإيميل لوحده عشان مهاجم ما يقفلش حساب ضحية
+        // بمحاولات من IP واحد؛ السقف اليومي على الإيميل واسع لكنه موجود.
         RateLimiter::for('login', function (Request $request) {
-            $email = strtolower((string) $request->input('email'));
+            $input = $request->input('email');
+            $email = is_string($input) ? strtolower(trim($input)) : '';
 
             return [
-                // حماية الحساب: مهما غيّر المهاجم الـ IP، الإيميل نفسه محدود
-                Limit::perMinute(5)->by('login:email:' . $email),
-                Limit::perDay(30)->by('login:email-day:' . $email),
+                Limit::perMinute(5)->by('login:email-ip:' . $email . ':' . $request->ip()),
+                Limit::perDay(100)->by('login:email-day:' . $email),
                 // سقف خلفي للشبكة عشان ميتفحش بروت فورس على إيميلات كتير
                 Limit::perMinute(30)->by('login:ip:' . $request->ip()),
             ];
@@ -61,7 +63,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Forgot password: المهم هنا إيميل الضحية ميترمي عليهش سبام بريد
         RateLimiter::for('forgot-password', function (Request $request) {
-            $email = strtolower((string) $request->input('email'));
+            $input = $request->input('email');
+            $email = is_string($input) ? strtolower(trim($input)) : '';
 
             return [
                 Limit::perHour(3)->by('fp:email:' . $email),
@@ -89,6 +92,11 @@ class AppServiceProvider extends ServiceProvider
         // Social login: بتتحسب على الـ IP (مفيش email في الـ request)
         RateLimiter::for('social', function (Request $request) {
             return Limit::perMinute(20)->by('social:ip:' . $request->ip());
+        });
+
+        // Track: الزيارات العامة محتاجة سقف أعلى من API العادي لكنه محدود.
+        RateLimiter::for('track', function (Request $request) {
+            return Limit::perMinute(120)->by('track:ip:' . $request->ip());
         });
 
         // Webhooks: سقف عالي لكنه محمي بالـ signature. الـ gateway نفسه بيبعت من IPs ثابتة.

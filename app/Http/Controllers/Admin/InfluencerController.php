@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\PromotionalLinkService;
 use App\Services\WalletService;
@@ -18,6 +20,11 @@ class InfluencerController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $influencers = User::influencers()
             ->with('wallet')
             ->when($request->search, function ($q) use ($request) {
@@ -53,6 +60,8 @@ class InfluencerController extends Controller
         // إنشاء محفظة تلقائيًا
         $this->walletService->getOrCreateWallet($influencer->id);
 
+        AuditLog::record('influencer.created', $influencer, ['email' => $influencer->email]);
+
         return response()->json($influencer, 201);
     }
 
@@ -85,12 +94,18 @@ class InfluencerController extends Controller
 
         $influencer->update($data);
 
+        AuditLog::record('influencer.updated', $influencer, [
+            'email'     => $influencer->email,
+            'is_active' => $influencer->is_active,
+        ]);
+
+        // تفعيل/تعطيل المؤثر بيغيّر influencer_picks في الرئيسية
+        HomeController::flush();
+
         return response()->json($influencer);
     }
 
-
-
-     public function attachProducts(Request $request, User $influencer)
+    public function attachProducts(Request $request, User $influencer)
     {
         abort_if($influencer->type !== 'influencer', 404);
 
@@ -127,20 +142,27 @@ class InfluencerController extends Controller
 
         $influencer->influencerProducts()->syncWithoutDetaching($attach);
 
+        AuditLog::record('influencer.products_attached', $influencer, [
+            'product_ids' => array_keys($attach),
+        ]);
+
+        // ربط/تفعيل منتجات المؤثر بيغيّر influencer_picks مباشرةً
+        HomeController::flush();
+
         return response()->json([
             'message'  => 'تم ربط المنتجات بالمؤثر بنجاح',
             'products' => $influencer->influencerProducts()->get(),
         ]);
     }
 
-      public function destroy(User $influencer)
+    public function destroy(User $influencer)
     {
         abort_if($influencer->type !== 'influencer', 404);
 
         // منع الحذف لو فيه رصيد أو سحوبات/عمولات معلّقة
         $wallet = $influencer->wallet;
 
-        if ($wallet && ((float) $wallet->balance > 0 || (float) $wallet->total_earned > 0)) {
+        if ($wallet && (round((float) $wallet->balance, 2) !== 0.0 || (float) $wallet->total_earned > 0)) {
             return response()->json([
                 'message' => 'لا يمكن حذف مؤثر لديه رصيد أو أرباح مسجّلة. عطّل الحساب بدلاً من الحذف.',
             ], 422);
@@ -157,7 +179,7 @@ class InfluencerController extends Controller
         }
 
         $hasPendingCommissions = $influencer->commissions()
-            ->whereIn('status', ['pending', 'available'])
+            ->whereIn('status', ['pending', 'approved'])
             ->exists();
 
         if ($hasPendingCommissions) {
@@ -168,6 +190,10 @@ class InfluencerController extends Controller
 
         $influencer->tokens()->delete();
         $influencer->delete();
+
+        AuditLog::record('influencer.deleted', $influencer, ['email' => $influencer->email]);
+
+        HomeController::flush();
 
         return response()->json(['message' => 'تم حذف المؤثر بنجاح']);
     }

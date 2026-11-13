@@ -11,7 +11,7 @@ REST API for the For_You store and influencer affiliate program.
 
 | Item | Value |
 | :--- | :--- |
-| Framework | Laravel 13 / PHP 8.3+ |
+| Framework | Laravel 13 / PHP 8.4.1+ |
 | Auth | Sanctum personal access tokens |
 | Default locale | Arabic (`ar`), English available via `Accept-Language: en` |
 | Timezone | `config('app.timezone')`, default `Africa/Cairo` |
@@ -66,6 +66,11 @@ For Google send `{ "id_token": "..." }`. For Apple send `id_token` or
 `access_token`. The API validates the Google token audience against
 `GOOGLE_CLIENT_IDS` and only allows active customers to use social login.
 
+Web redirects are stateless, so the API issues a random `state` stored in the
+cache for 10 minutes and requires the same `state` on the callback. Missing,
+expired or mismatched state returns `401`. Apple `id_token` claims (`aud`,
+`iss`, `exp`) are validated locally before the token is accepted.
+
 ### Account
 
 | Method | Path | Description |
@@ -78,7 +83,16 @@ For Google send `{ "id_token": "..." }`. For Apple send `id_token` or
 | POST | `/api/auth/reset-password` | Reset with token |
 
 Profile fields: `name`, `email`, `phone`, `avatar`, `current_password`.
-Changing email requires `current_password` for accounts that have a password.
+Changing email requires `current_password` for accounts that have a password,
+and resets `email_verified_at` because the new address has not been verified.
+Passwordless social accounts cannot change their email from the API (`403`);
+they must set a password first. Avatar uploads are capped at 2000×2000 px.
+
+Soft-deleted accounts (influencers/employees) release their unique email and
+phone so the same identifiers can be reused by a new account. The original
+values are preserved in `users.deleted_email` / `users.deleted_phone` for
+support and audit; the live `email`/`phone` columns are replaced with
+`deleted+{id}@deleted.invalid` and `deleted-{id}`.
 
 ---
 
@@ -189,6 +203,7 @@ simultaneous checkouts cannot create duplicate orders.
 | GET | `/api/orders` | Customer orders (paginated) |
 | GET | `/api/orders/{id}` | Customer order details |
 | POST | `/api/orders/{id}/cancel` | Cancel a cancellable order |
+| POST | `/api/orders/{id}/pay` | Start/retry payment (see Payments) |
 | POST | `/api/checkout/quote` | Price quote without creating an order |
 
 ---
@@ -200,6 +215,10 @@ simultaneous checkouts cannot create duplicate orders.
 2. The frontend stores the returned `ref` and sends it when creating the order.
 3. The order stores `influencer_id`, `promotional_link_id` and the effective
    commission percentage per line.
+   A `NULL` percentage on `influencer_product` means "use
+   `INFLUENCER_DEFAULT_COMMISSION`"; `0` means eligible with a zero
+   commission. `NULL` on `order_items.commission_percentage` (frozen at order
+   time) means the line is not eligible at all.
 4. When the order becomes `delivered`, a commission row is created with status
    `pending` and `available_at = now + INFLUENCER_COMMISSION_HOLD_DAYS`.
 5. The hourly `commissions:release` command moves due commissions to `approved`
@@ -220,6 +239,11 @@ Commission endpoints:
 | GET | `/api/influencer/wallet` | Balance, held commissions, transactions |
 | POST | `/api/influencer/wallet/withdraw` | Request a withdrawal |
 | GET | `/api/influencer/wallet/withdrawals` | Own withdrawal requests |
+
+"Sales" everywhere (admin dashboard, reports, influencer dashboard/sales and
+promotional links) means **`delivered` orders only** (`Order::SALE_STATUSES`).
+`NON_SALE_STATUSES` (`cancelled`, `returned`) is still used for coupon usage
+limits, not for revenue.
 
 ---
 
@@ -267,6 +291,54 @@ written for approve/reject/pay actions.
 
 ## Payments
 
+### Payment initiation
+
+`POST /api/orders/{id}/pay`
+
+```json
+{ "gateway": "manual" }
+```
+
+`gateway` is optional and must be one of the keys in
+`config/payments.php` (`manual`, `easykash`). When omitted, the payment method
+already stored on the order is used.
+
+Response:
+
+```json
+{
+  "message": "تم تجهيز الدفع",
+  "payment": {
+    "order_id": 12,
+    "order_number": "ORD-2026-000012",
+    "payment_id": 12,
+    "gateway": "manual",
+    "status": "pending",
+    "transaction_reference": "MAN-XXXXXXXXXXXXXX",
+    "payment_url": null,
+    "instructions": "سيتم تأكيد الدفع يدويًا من إدارة المتجر بعد التحويل.",
+    "amount": 250.0,
+    "currency": "EGP"
+  }
+}
+```
+
+Rules:
+
+1. Only the order owner can initiate payment; other customers get `404`.
+2. The order must not be `cancelled`/`returned` → `422`.
+3. The payment must be `pending` or `failed`; `paid`/`refunded` → `422`.
+4. Requesting a different gateway updates `payments.payment_method` and the
+   initiated reference is stored in `payments.gateway_response`.
+5. `manual` never returns a payment URL and is confirmed later by an admin.
+6. `easykash` returns a `payment_url` when `EASYKASH_INITIATE_URL` is set.
+7. EasyKash URLs are signed: `signature` = HMAC-SHA256 over the sorted query
+   parameters (`order_number`, `amount`, `currency`, `reference`, `timestamp`,
+   `merchant_id`) using `EASYKASH_INITIATE_SECRET` (falls back to
+   `EASYKASH_WEBHOOK_SECRET`). `amount` is sent with two decimals.
+8. Validation and row locks run in a short transaction; the gateway call itself
+   runs outside any transaction.
+
 ### Manual confirmation
 
 `PATCH /api/admin/payments/{id}/status`
@@ -277,13 +349,15 @@ written for approve/reject/pay actions.
 
 `transaction_id` is required when marking a payment paid. Statuses: `paid`,
 `failed`, `refunded`. Confirmation requires `payments.confirm`; refunds require
-`payments.refund`.
+`payments.refund`. Retrying a failed payment is supported: `failed → paid` is
+allowed.
 
 ### Payment webhook
 
 `POST /api/webhooks/payments/{gateway}` (public, signature-protected)
 
-Supported gateway: `easykash` (skeleton).
+Supported webhook gateway: `easykash` (skeleton). `manual` does not accept
+webhooks.
 
 Headers:
 
@@ -309,12 +383,27 @@ Rules:
 
 1. Invalid signature → `401`.
 2. Unknown gateway → `404`.
-3. Paid event with amount differing from `orders.total` beyond
-   `payments.amount_tolerance` (0.01) → `422`, and an audit entry is written.
-4. Replaying a paid event is idempotent → `200` with `status: already_paid`.
-5. Failed/cancelled events mark the payment failed and cancel the order
-   (restoring stock, coupon usage and commissions).
-6. Unsupported/pending events return `200` with `status: ignored`.
+3. Unknown order → `200` with `status: ignored` (audit entry written, so the
+   gateway stops retrying).
+4. Amount differing from `orders.total` beyond `payments.amount_tolerance`
+   (0.01) → `422` and an audit entry. This applies to both paid and failed
+   events.
+5. A webhook whose gateway differs from `payments.payment_method` → `200` with
+   `status: ignored` and an audit entry.
+6. Replaying a paid event is idempotent → `200` with `status: already_paid`.
+7. Failed/cancelled events mark the payment `failed` **without cancelling the
+   order**. The order stays `new` so the customer can retry via
+   `POST /api/orders/{id}/pay`; if they do not, `orders:expire-unpaid` cancels
+   it after `UNPAID_ORDER_TTL_HOURS`.
+8. Unsupported/pending events return `200` with `status: ignored`.
+9. A paid event that arrives **after** the order was cancelled/returned (for
+   example a late EasyKash confirmation) is recorded: the payment becomes
+   `paid`, an `payment.webhook.late_paid` audit entry is written, and the
+   response is `200` with `status: needs_refund`. The order status is not
+   changed; finance must refund manually.
+10. Replay protection is optional: when `EASYKASH_WEBHOOK_TOLERANCE` > 0 the
+    signed payload must include `timestamp` within that many seconds, otherwise
+    the webhook is rejected with `401`.
 
 To add a real gateway: implement `App\Contracts\PaymentGatewayInterface`,
 register it in `PaymentGatewayManager`, and add credentials under
@@ -352,6 +441,12 @@ Updating a shipment synchronizes the order:
 - `delivered` → order `delivered`
 - `returned` → order `returned`
 
+Returning a shipment whose payment is still `paid` is accepted at the shipment
+level, but the order is left unchanged and a `shipping.returned.needs_refund`
+audit entry is written. Refund the payment first (`PATCH
+/api/admin/payments/{id}/status` with `refunded`), then the order can move to
+`returned`.
+
 ### Shipping webhook
 
 `POST /api/webhooks/shipping/{gateway}` (public, signature-protected)
@@ -383,22 +478,30 @@ See `.env.example` for the full list. Key variables:
 | `APP_TIMEZONE` | `Africa/Cairo` | Reporting and date calculations |
 | `APP_LOCALE` | `ar` | Default message language |
 | `DB_*` | MySQL | Database connection |
+| `DB_TIMEZONE` | — | Optional MySQL session timezone (e.g. `+00:00`) |
 | `SANCTUM_STATEFUL_DOMAINS` | `localhost,127.0.0.1` | Sanctum stateful hosts |
+| `SANCTUM_EXPIRATION` | `10080` | Bearer token lifetime in minutes (0 = no expiry) |
+| `TRUSTED_PROXIES` | — | Comma-separated proxy IPs, or `*`; empty = no trusted proxy |
+| `APP_DEBUG` | `true` (example) | Must be `false` in production |
 | `FRONTEND_URL` | `http://localhost:3000` | Password reset links |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `ADMIN_PHONE` | — | Seeded Super Admin (required in production) |
-| `PAYMENT_GATEWAY` | `easykash` | Default payment gateway driver |
+| `PAYMENT_GATEWAY` | `manual` | Default payment gateway driver |
 | `PAYMENT_METHODS` | `manual,easykash` | Accepted `payment_method` values |
 | `DEFAULT_PAYMENT_METHOD` | `manual` | Fallback payment method |
 | `EASYKASH_WEBHOOK_SECRET` | — | Payment webhook HMAC secret |
 | `EASYKASH_SIGNATURE_HEADER` | `X-EasyKash-Signature` | Signature header name |
+| `EASYKASH_INITIATE_SECRET` | falls back to webhook secret | Payment URL signing secret |
+| `EASYKASH_WEBHOOK_TOLERANCE` | `0` | Replay window in seconds (0 = disabled) |
 | `EASYKASH_MERCHANT_ID`, `EASYKASH_INITIATE_URL`, `EASYKASH_MODE` | — | Gateway credentials/mode |
 | `SHIPPING_GATEWAY` | `manual` | Shipping gateway driver |
 | `SHIPPING_WEBHOOK_SECRET` | — | Shipping webhook HMAC secret |
+| `SHIPPING_SIGNATURE_HEADER` | `X-Shipping-Signature` | Shipping signature header name |
 | `SHIPPING_FLAT_RATE` | `50` | Flat shipping cost |
 | `SHIPPING_FREE_OVER` | — | Free shipping threshold |
 | `INFLUENCER_DEFAULT_COMMISSION` | `10` | Default commission percentage |
 | `INFLUENCER_COMMISSION_HOLD_DAYS` | `7` | Hold period before approval |
 | `UNPAID_ORDER_TTL_HOURS` | `24` | Auto-cancel unpaid orders (0 disables) |
+| `EXPIRE_UNPAID_PAYMENT_METHODS` | `easykash` | Payment methods eligible for auto-cancel (manual/COD excluded) |
 | `WITHDRAWAL_FOUR_EYES` | `true` | Enforce approver ≠ payer |
 | `REQUIRE_PAYMENT_BEFORE_SHIPPING` | `true` | Block shipping before payment |
 | `LINK_CLICK_TTL_MINUTES` | `60` | Deduplicate clicks per visitor |
@@ -419,7 +522,11 @@ Run the scheduler every minute in production:
 | Command | Schedule | Purpose |
 | :--- | :--- | :--- |
 | `commissions:release` | hourly | Release due `pending` commissions to wallets |
-| `orders:expire-unpaid` | every 15 minutes | Cancel stale unpaid orders and restore stock |
+| `orders:expire-unpaid` | every 15 minutes | Cancel stale unpaid orders (only `EXPIRE_UNPAID_PAYMENT_METHODS`) and restore stock |
+
+`orders:expire-unpaid` writes an `order.auto_cancelled` audit entry for every
+order it cancels. Manual/COD orders are never auto-cancelled because collection
+happens on delivery.
 
 Both commands use `withoutOverlapping()`.
 
@@ -459,6 +566,7 @@ Arabic messages are returned when `Accept-Language: ar` is sent.
 | `change-password` | Authenticated password change |
 | `social` | Social login redirect/token |
 | `api` | Authenticated API traffic |
+| `track` | Public promotional-link click tracking |
 | `webhook` | Payment/shipping webhooks |
 
 ---

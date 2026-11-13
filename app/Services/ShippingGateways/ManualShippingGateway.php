@@ -58,7 +58,10 @@ class ManualShippingGateway implements ShippingGatewayInterface
             return false;
         }
 
-        $signature = (string) $request->header('X-Shipping-Signature', '');
+        $signature = (string) $request->header(
+            (string) config('store.shipping_signature_header', 'X-Shipping-Signature'),
+            ''
+        );
         $signature = preg_replace('/^sha256=/i', '', $signature) ?? '';
 
         if ($signature === '') {

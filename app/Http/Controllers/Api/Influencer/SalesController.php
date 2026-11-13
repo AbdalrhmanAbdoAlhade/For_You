@@ -26,8 +26,9 @@ class SalesController extends Controller
             ->when($request->from, fn ($q, $d) => $q->where('created_at', '>=', Carbon::parse($d)->startOfDay()))
             ->when($request->to, fn ($q, $d) => $q->where('created_at', '<=', Carbon::parse($d)->endOfDay()));
 
+        // الإجمالي = المبيعات المحققة فقط (delivered) — نفس تعريف التقارير
         $totals = (clone $base)
-            ->whereNotIn('status', Order::NON_SALE_STATUSES)
+            ->whereIn('status', Order::SALE_STATUSES)
             ->selectRaw('COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS sales_total')
             ->first();
 

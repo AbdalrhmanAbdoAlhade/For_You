@@ -132,6 +132,7 @@ class ReportController extends Controller
         return response()->json([
             'total_sales'         => (float) Order::whereIn('status', $this->saleStatuses())->sum('total'),
             'total_orders'        => Order::count(),
+            'sales_orders'        => Order::whereIn('status', $this->saleStatuses())->count(),
             'total_customers'     => User::customers()->count(),
             'total_influencers'   => User::influencers()->count(),
             'total_commissions'   => (float) InfluencerCommission::whereIn('status', self::EARNED_COMMISSION_STATUSES)

@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
@@ -17,19 +18,39 @@ class SocialAuthController extends Controller
     /**
      * Redirect to provider (للويب)
      */
-    public function redirect(string $provider)
+    public function redirect(Request $request, string $provider)
     {
         $this->validateProvider($provider);
 
-        return Socialite::driver($provider)->stateless()->redirect();
+        /*
+         * الـ API stateless (مفيش session)، فبنعمل state عشوائي في الـ cache
+         * ونتحقق منه في الـ callback. ده يمنع login CSRF: حد يخلي الضحية
+         * يكمل تسجيل دخول بحساب المهاجم.
+         */
+        $state = Str::random(40);
+        Cache::put('social:state:' . $state, $provider, now()->addMinutes(10));
+
+        return Socialite::driver($provider)
+            ->stateless()
+            ->with(['state' => $state])
+            ->redirect();
     }
 
     /**
      * Callback من Google / Apple (للويب): الكود بيتبدل بتوكن من عندنا، فآمن
      */
-    public function callback(string $provider)
+    public function callback(Request $request, string $provider)
     {
         $this->validateProvider($provider);
+
+        $stateInput = $request->input('state');
+        $state = is_string($stateInput) ? $stateInput : '';
+
+        if ($state === '' || Cache::pull('social:state:' . $state) !== $provider) {
+            return response()->json([
+                'message' => 'حالة تسجيل الدخول غير صالحة أو منتهية',
+            ], 401);
+        }
 
         try {
             $socialUser = Socialite::driver($provider)->stateless()->user();
@@ -59,10 +80,17 @@ class SocialAuthController extends Controller
                 'access_token' => 'required_without:id_token|string',
             ]);
 
+            $idToken = $request->input('id_token');
+
+            // التحقق من aud/iss/exp محليًا قبل الاعتماد على المكتبة.
+            if ($idToken && !$this->verifyAppleIdTokenClaims((string) $idToken)) {
+                return response()->json(['message' => 'توكن غير صالح أو منتهي'], 401);
+            }
+
             try {
                 $socialUser = Socialite::driver('apple')
                     ->stateless()
-                    ->userFromToken($request->input('id_token') ?? $request->input('access_token'));
+                    ->userFromToken($idToken ?? $request->input('access_token'));
 
                 $profile = $this->fromSocialite($socialUser);
             } catch (\Throwable $e) {
@@ -153,6 +181,45 @@ class SocialAuthController extends Controller
             'name'           => $claims['name'] ?? null,
             'avatar'         => $claims['picture'] ?? null,
         ];
+    }
+
+    /**
+     * التحقق المحلي من claims الـ Apple id_token.
+     *
+     * التوقيع نفسه بيتحقق منه socialiteproviders/apple (مفاتيح Apple)،
+     * وهنا نتأكد من aud و iss و exp قبل قبول التوكن.
+     */
+    protected function verifyAppleIdTokenClaims(string $idToken): bool
+    {
+        $parts = explode('.', $idToken);
+
+        if (count($parts) !== 3) {
+            return false;
+        }
+
+        $encoded = strtr($parts[1], '-_', '+/');
+        $encoded .= str_repeat('=', (4 - strlen($encoded) % 4) % 4);
+        $payload = json_decode((string) base64_decode($encoded, true), true);
+
+        if (!is_array($payload)) {
+            return false;
+        }
+
+        $clientId = (string) config('services.apple.client_id', '');
+
+        if ($clientId !== '' && (string) ($payload['aud'] ?? '') !== $clientId) {
+            return false;
+        }
+
+        if (($payload['iss'] ?? null) !== 'https://appleid.apple.com') {
+            return false;
+        }
+
+        if (!isset($payload['exp']) || (int) $payload['exp'] <= now()->timestamp) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

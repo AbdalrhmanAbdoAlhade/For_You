@@ -15,20 +15,22 @@ class DashboardController extends Controller
 {
     public function index(Request $request)
     {
-        // الحالات اللي مبتتحسبش مبيعات
-        $excluded = "('cancelled','returned')";
+        // المبيعات = الحالات المحققة للبيع (delivered) — مصدر واحد للحقيقة.
+        $saleStatuses = Order::SALE_STATUSES;
+        $inClause = implode(',', array_fill(0, count($saleStatuses), '?'));
+        $saleBindings = array_merge($saleStatuses, $saleStatuses);
 
         // استعلام واحد بدل 8 على جدول الطلبات
         $orders = Order::selectRaw("
             COUNT(*) AS total_orders,
-            COALESCE(SUM(CASE WHEN status NOT IN {$excluded} THEN total END), 0) AS total_sales,
-            COALESCE(SUM(CASE WHEN influencer_id IS NOT NULL AND status NOT IN {$excluded} THEN total END), 0) AS influencer_sales,
+            COALESCE(SUM(CASE WHEN status IN ({$inClause}) THEN total END), 0) AS total_sales,
+            COALESCE(SUM(CASE WHEN influencer_id IS NOT NULL AND status IN ({$inClause}) THEN total END), 0) AS influencer_sales,
             COALESCE(SUM(CASE WHEN status IN ('new','confirmed','processing','ready_for_shipping') THEN 1 ELSE 0 END), 0) AS pending_orders,
             COALESCE(SUM(CASE WHEN status = 'shipped' THEN 1 ELSE 0 END), 0) AS shipped_orders,
             COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered_orders,
             COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_orders,
             COALESCE(SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END), 0) AS returned_orders
-        ")->first();
+        ", $saleBindings)->first();
 
         $stats = [
             // أعداد تشغيلية

@@ -31,6 +31,9 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'deleted_email',
+        'deleted_phone',
+        'provider_id',
     ];
 
     protected $casts = [
@@ -38,6 +41,26 @@ class User extends Authenticatable
         'is_active' => 'boolean',
         'password' => 'hashed',
     ];
+
+    /**
+     * عند الحذف الناعم نحرر البريد/الهاتف للاستخدام مرة أخرى
+     * ونحتفظ بالقيم الأصلية في deleted_email / deleted_phone.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user) {
+            if ($user->isForceDeleting()) {
+                return;
+            }
+
+            $user->forceFill([
+                'deleted_email' => $user->email,
+                'deleted_phone' => $user->phone,
+                'email'         => 'deleted+' . $user->id . '@deleted.invalid',
+                'phone'         => $user->phone !== null ? 'deleted-' . $user->id : null,
+            ])->saveQuietly();
+        });
+    }
 
     // ================= Relations =================
 

@@ -46,15 +46,15 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        $request->validate([
-            'email'    => 'required|email',
-            'password' => 'required',
+        $data = $request->validate([
+            'email'    => 'required|string|email|max:255',
+            'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('email', $data['email'])->first();
 
         // مستخدم Google/Apple من غير باسورد مينفعش يدخل بالباسورد
-        if (!$user || !$user->password || !Hash::check($request->password, $user->password)) {
+        if (!$user || !$user->password || !Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['بيانات الدخول غير صحيحة'],
             ]);
@@ -94,21 +94,32 @@ class AuthController extends Controller
 
         $data = $request->validate([
             'name'             => 'sometimes|string|max:255',
-            'email'            => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'email'            => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'phone'            => ['nullable', 'string', 'max:30', Rule::unique('users', 'phone')->ignore($user->id)],
-            'avatar'           => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'avatar'           => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048|dimensions:max_width=2000,max_height=2000',
             'current_password' => 'nullable|string',
         ]);
 
+        $emailChanged = isset($data['email']) && $data['email'] !== $user->email;
+
         // الإيميل لحسابات العملاء بس (المؤثر والموظف بيتعدل من الإدارة)
-        if (isset($data['email']) && $data['email'] !== $user->email) {
+        if ($emailChanged) {
             if ($user->type !== 'customer') {
                 return response()->json(['message' => 'لتغيير البريد الإلكتروني تواصل مع الإدارة'], 403);
             }
 
-            // تغيير الإيميل يحتاج الباسورد الحالي (لو الحساب ليه باسورد) عشان توكن مسروق ميسرقش الحساب
-            if ($user->password
-                && (empty($data['current_password']) || !Hash::check($data['current_password'], $user->password))) {
+            /*
+             * حساب social من غير باسورد: تغيير الإيميل بتوكن واحد خطر
+             * (توكن مسروق يغيّر الإيميل ويستولي على الحساب). نطلب تعيين
+             * كلمة مرور أولاً، وبعدها التغيير يحتاج الباسورد الحالي.
+             */
+            if (!$user->password) {
+                return response()->json([
+                    'message' => 'عيّن كلمة مرور للحساب أولاً قبل تغيير البريد الإلكتروني',
+                ], 403);
+            }
+
+            if (empty($data['current_password']) || !Hash::check($data['current_password'], $user->password)) {
                 throw ValidationException::withMessages([
                     'current_password' => ['كلمة المرور الحالية مطلوبة وصحيحة لتغيير البريد'],
                 ]);
@@ -127,7 +138,14 @@ class AuthController extends Controller
             unset($data['avatar']);
         }
 
-        $user->update($data);
+        $user->fill($data);
+
+        // الإيميل الجديد لازم يتأكد من جديد.
+        if ($emailChanged) {
+            $user->email_verified_at = null;
+        }
+
+        $user->save();
 
         return response()->json($user->fresh());
     }

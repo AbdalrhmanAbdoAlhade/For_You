@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
+use App\Models\AuditLog;
 use App\Models\Category;
 use App\Services\FileUploadService;
 use Illuminate\Http\Request;
@@ -19,6 +21,10 @@ class CategoryController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'search' => 'nullable|string|max:100',
+        ]);
+
         $categories = Category::with('parent')
             ->when($request->search, fn ($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->orderBy('sort_order')
@@ -62,6 +68,9 @@ class CategoryController extends Controller
         }
 
         $category = Category::create($data);
+
+        AuditLog::record('category.created', $category, ['name' => $category->name]);
+        HomeController::flush();
 
         return new CategoryResource($category);
     }
@@ -123,6 +132,9 @@ class CategoryController extends Controller
 
         $category->update($data);
 
+        AuditLog::record('category.updated', $category, ['name' => $category->name]);
+        HomeController::flush();
+
         return response()->json($category->fresh('parent'));
     }
 
@@ -142,6 +154,9 @@ class CategoryController extends Controller
         }
 
         $category->delete();
+
+        AuditLog::record('category.deleted', $category, ['name' => $category->name]);
+        HomeController::flush();
 
         return response()->json(['message' => 'تم حذف القسم بنجاح']);
     }

@@ -22,28 +22,31 @@ class AddressController extends Controller
         $data = $request->validate($this->rules());
         $user = $request->user();
 
-        if ($user->addresses()->count() >= self::MAX_ADDRESSES) {
-          
-return response()->json(
-    [
-        'message' => __('وصلت للحد الأقصى من العناوين (:max)', [
-            'max' => self::MAX_ADDRESSES,
-        ]),
-    ],
-    422
-);
+        try {
+            $address = DB::transaction(function () use ($user, $data) {
+                // قفل صف المستخدم حتى لا يتجاوز طلبان متزمنان حد العناوين.
+                \App\Models\User::whereKey($user->id)->lockForUpdate()->first();
+
+                if ($user->addresses()->count() >= self::MAX_ADDRESSES) {
+                    throw new \DomainException(
+                        __('وصلت للحد الأقصى من العناوين (:max)', [
+                            'max' => self::MAX_ADDRESSES,
+                        ])
+                    );
+                }
+
+                // أول عنوان بيبقى الافتراضي تلقائي
+                $makeDefault = !empty($data['is_default']) || !$user->addresses()->exists();
+
+                if ($makeDefault) {
+                    $user->addresses()->update(['is_default' => false]);
+                }
+
+                return $user->addresses()->create([...$data, 'is_default' => $makeDefault]);
+            });
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
-
-        $address = DB::transaction(function () use ($user, $data) {
-            // أول عنوان بيبقى الافتراضي تلقائي
-            $makeDefault = !empty($data['is_default']) || !$user->addresses()->exists();
-
-            if ($makeDefault) {
-                $user->addresses()->update(['is_default' => false]);
-            }
-
-            return $user->addresses()->create([...$data, 'is_default' => $makeDefault]);
-        });
 
         return response()->json($address, 201);
     }

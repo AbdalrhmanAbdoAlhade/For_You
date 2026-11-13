@@ -6,7 +6,7 @@ wallets and withdrawals).
 
 ## Environment
 
-- PHP 8.3+ with the `pdo_mysql` (or `pdo_sqlite` for tests) extension.
+- PHP 8.4.1+ with the `pdo_mysql` (or `pdo_sqlite` for tests) extension.
 - Composer 2.x.
 - Node.js only if you need to build the Vite assets (`npm install && npm run build`).
 - `gd` or `imagick` is required only when uploading/converting images. The API

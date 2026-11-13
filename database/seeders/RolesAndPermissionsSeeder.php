@@ -218,29 +218,42 @@ class RolesAndPermissionsSeeder extends Seeder
         // 3. تطبيق ربط الصلاحيات التلقائي (Dynamic Rol-Permission mapping)
         // ========================
         
-        // الأدوار اللي كانت بتشوف المحافظ تشوف السحوبات بس
-        DB::statement("
-            INSERT IGNORE INTO role_permission (role_id, permission_id, created_at, updated_at)
-            SELECT rp.role_id, pn.id, NOW(), NOW()
-            FROM role_permission rp
-            JOIN permissions po ON po.id = rp.permission_id AND po.slug = 'influencers.wallets'
-            JOIN permissions pn ON pn.slug = 'withdrawals.view'
-        ");
+        // ربط الصلاحيات المشتقة (يعمل على MySQL / SQLite / PostgreSQL)
+        $derivedGrants = [
+            ['from' => 'influencers.wallets', 'to' => 'withdrawals.view'],
+            ['from' => 'payments.manage',     'to' => 'payments.confirm'],
+        ];
 
-        // الأدوار اللي كانت payments.manage تاخد تأكيد الدفع بس
-        DB::statement("
-            INSERT IGNORE INTO role_permission (role_id, permission_id, created_at, updated_at)
-            SELECT rp.role_id, pn.id, NOW(), NOW()
-            FROM role_permission rp
-            JOIN permissions po ON po.id = rp.permission_id AND po.slug = 'payments.manage'
-            JOIN permissions pn ON pn.slug = 'payments.confirm'
-        ");
+        foreach ($derivedGrants as $grant) {
+            $targetId = Permission::where('slug', $grant['to'])->value('id');
+
+            if (!$targetId) {
+                continue;
+            }
+
+            $roleIds = DB::table('role_permission')
+                ->join('permissions', 'permissions.id', '=', 'role_permission.permission_id')
+                ->where('permissions.slug', $grant['from'])
+                ->pluck('role_permission.role_id')
+                ->unique();
+
+            $rows = $roleIds->map(fn ($roleId) => [
+                'role_id'       => $roleId,
+                'permission_id' => $targetId,
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ])->all();
+
+            if ($rows !== []) {
+                DB::table('role_permission')->insertOrIgnore($rows);
+            }
+        }
 
              // ========================
         // 4. إنشاء Super Admin User (اختياري — من الـ env فقط)
         // ========================
-        $adminEmail    = env('ADMIN_EMAIL');
-        $adminPassword = env('ADMIN_PASSWORD');
+        $adminEmail    = config('admin.email');
+        $adminPassword = config('admin.password');
 
         // امنع إنشاء أدمن افتراضي في production أو لو الـ env مش متحدد
         if (app()->environment('production') && (empty($adminEmail) || empty($adminPassword))) {
@@ -263,8 +276,8 @@ class RolesAndPermissionsSeeder extends Seeder
         $admin = User::updateOrCreate(
             ['email' => $adminEmail],
             [
-                'name'      => env('ADMIN_NAME', 'Super Admin'),
-                'phone'     => env('ADMIN_PHONE', '01000000000'),
+                'name'      => config('admin.name', 'Super Admin'),
+                'phone'     => config('admin.phone', '01000000000'),
                 'password'  => Hash::make($adminPassword),
                 'type'      => 'admin',
                 'is_active' => true,

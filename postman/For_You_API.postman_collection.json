@@ -1657,6 +1657,54 @@
                     }
                 },
                 {
+                    "name": "POST api/orders/{{orderId}}/pay",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"gateway\": \"manual\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/orders/{{orderId}}/pay",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "orders",
+                                "{{orderId}}",
+                                "pay"
+                            ]
+                        },
+                        "description": "Start or retry payment for an unpaid order. gateway is optional (manual or easykash); defaults to the order payment method. Failed payments may be retried. EasyKash payment_url is HMAC-signed (signature + timestamp query params).",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{customerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
                     "name": "GET api/notifications",
                     "request": {
                         "method": "GET",
@@ -5405,7 +5453,7 @@
                                 "easykash"
                             ]
                         },
-                        "description": "EasyKash payment webhook. The pre-request script signs the exact raw body with HMAC-SHA256 using webhookSecret. The amount must match orders.total within 0.01.",
+                        "description": "EasyKash payment webhook. The pre-request script signs the exact raw body with HMAC-SHA256 using webhookSecret. The amount must match orders.total within 0.01. A paid event for an already cancelled/returned order is stored as paid and returns 200 with status needs_refund (audit entry written; refund manually). When EASYKASH_WEBHOOK_TOLERANCE > 0 the payload must also include a recent timestamp.",
                         "body": {
                             "mode": "raw",
                             "raw": "{\n    \"order_number\": \"{{orderNumber}}\",\n    \"amount\": 500,\n    \"status\": \"paid\",\n    \"transaction_id\": \"EK-TXN-001\"\n}",

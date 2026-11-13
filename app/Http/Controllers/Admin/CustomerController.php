@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -11,10 +12,15 @@ class CustomerController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $customers = User::customers()
             ->withCount('ordersAsCustomer as orders_count')
             ->withSum(['ordersAsCustomer as total_spent' => function ($q) {
-                $q->whereNotIn('status', Order::NON_SALE_STATUSES);
+                $q->whereIn('status', Order::SALE_STATUSES);
             }], 'total')
             ->when($request->search, function ($q) use ($request) {
                 $q->where(function ($q) use ($request) {
@@ -39,7 +45,7 @@ class CustomerController extends Controller
             'stats'    => [
                 'orders_count' => $customer->ordersAsCustomer()->count(),
                 'total_spent'  => (float) $customer->ordersAsCustomer()
-                    ->whereNotIn('status', Order::NON_SALE_STATUSES)->sum('total'),
+                    ->whereIn('status', Order::SALE_STATUSES)->sum('total'),
             ],
             'recent_orders' => $customer->ordersAsCustomer()
                 ->latest()->take(10)
@@ -56,6 +62,10 @@ class CustomerController extends Controller
         if (!$customer->is_active) {
             $customer->tokens()->delete(); // نقفل كل جلساته
         }
+
+        AuditLog::record('customer.toggled', $customer, [
+            'is_active' => $customer->is_active,
+        ]);
 
         return response()->json($customer);
     }

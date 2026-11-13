@@ -81,6 +81,11 @@ return new class extends Migration
             Schema::table('order_items', function (Blueprint $table) {
                 $table->dropForeign(['product_id']);
             });
+            // العمود لازم يكون nullable قبل nullOnDelete، وإلا MySQL بيرفض
+            // إنشاء الـ FK (خطأ 1830: عمود غير nullable مع SET NULL).
+            Schema::table('order_items', function (Blueprint $table) {
+                $table->unsignedBigInteger('product_id')->nullable()->change();
+            });
             Schema::table('order_items', function (Blueprint $table) {
                 $table->foreign('product_id')
                     ->references('id')->on('products')
@@ -126,6 +131,14 @@ return new class extends Migration
             Schema::table('order_items', function (Blueprint $table) {
                 $table->dropForeign(['product_id']);
             });
+
+            // نرجّع NOT NULL فقط لو مفيش أصناف بمنتج محذوف.
+            if (!DB::table('order_items')->whereNull('product_id')->exists()) {
+                Schema::table('order_items', function (Blueprint $table) {
+                    $table->unsignedBigInteger('product_id')->nullable(false)->change();
+                });
+            }
+
             Schema::table('order_items', function (Blueprint $table) {
                 $table->foreign('product_id')
                     ->references('id')->on('products')

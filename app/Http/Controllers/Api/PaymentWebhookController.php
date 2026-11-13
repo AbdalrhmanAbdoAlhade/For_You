@@ -46,12 +46,22 @@ class PaymentWebhookController extends Controller
         $order = $this->findOrder($result->orderNumber, $result->orderId);
 
         if (!$order) {
-            return response()->json(['message' => 'الطلب غير موجود'], 404);
+            // طلب غير معروف: نرجّع 200 حتى لا تعيد البوابة الإرسال بلا نهاية.
+            AuditLog::record('payment.webhook.unknown_order', null, [
+                'gateway'      => $gateway,
+                'order_number' => $result->orderNumber,
+                'order_id'     => $result->orderId,
+            ]);
+
+            return response()->json([
+                'message' => 'الطلب غير موجود، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
         }
 
         $tolerance = (float) config('payments.amount_tolerance', 0.01);
 
-        if (abs((float) $order->total - (float) $result->amount) > $tolerance) {
+        if ($result->amount === null || abs((float) $order->total - (float) $result->amount) > $tolerance) {
             AuditLog::record('payment.webhook.amount_mismatch', $order, [
                 'expected' => (float) $order->total,
                 'received' => (float) $result->amount,
@@ -66,7 +76,26 @@ class PaymentWebhookController extends Controller
         $payment = $order->payment()->first();
 
         if (!$payment) {
-            return response()->json(['message' => 'لا يوجد سجل دفع لهذا الطلب'], 404);
+            AuditLog::record('payment.webhook.missing_payment', $order, [
+                'gateway' => $gateway,
+            ]);
+
+            return response()->json([
+                'message' => 'لا يوجد سجل دفع لهذا الطلب، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
+        }
+
+        if ($payment->payment_method !== $gateway) {
+            AuditLog::record('payment.webhook.gateway_mismatch', $payment, [
+                'expected_gateway' => $payment->payment_method,
+                'received_gateway' => $gateway,
+            ]);
+
+            return response()->json([
+                'message' => 'بوابة الـ webhook لا تطابق طريقة دفع الطلب، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
         }
 
         // Idempotency: نفس الحدث قد يصل أكثر من مرة.
@@ -75,6 +104,38 @@ class PaymentWebhookController extends Controller
                 'message' => 'الدفعة مؤكدة بالفعل',
                 'status'  => 'already_paid',
                 'payment' => $payment,
+            ]);
+        }
+
+        /*
+         * دفعة وصلت بعد إلغاء/إرجاع الطلب (مثلاً orders:expire-unpaid).
+         * الفلوس اتحصّلت بالفعل، فنسجلها paid للمراجعة والاسترداد ونرجّع 200
+         * حتى لا تعيد البوابة الإرسال بلا نهاية.
+         */
+        if (in_array($order->status, ['cancelled', 'returned'], true)) {
+            try {
+                $payment = $this->payments->recordLatePayment(
+                    $payment,
+                    $result->transactionId,
+                    $result->raw
+                );
+            } catch (\DomainException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            AuditLog::record('payment.webhook.late_paid', $payment, [
+                'gateway'        => $gateway,
+                'order_id'       => $order->id,
+                'order_status'   => $order->status,
+                'transaction_id' => $result->transactionId,
+                'amount'         => (float) $order->total,
+                'needs_refund'   => true,
+            ]);
+
+            return response()->json([
+                'message' => 'الطلب ملغي أو مرتجع، تم تسجيل الدفعة للمراجعة والاسترداد',
+                'status'  => 'needs_refund',
+                'payment' => $payment->load('order:id,order_number,status'),
             ]);
         }
 
@@ -107,13 +168,57 @@ class PaymentWebhookController extends Controller
         $order = $this->findOrder($result->orderNumber, $result->orderId);
 
         if (!$order) {
-            return response()->json(['message' => 'الطلب غير موجود'], 404);
+            AuditLog::record('payment.webhook.unknown_order', null, [
+                'order_number' => $result->orderNumber,
+                'order_id'     => $result->orderId,
+                'status'       => 'failed',
+            ]);
+
+            return response()->json([
+                'message' => 'الطلب غير موجود، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
+        }
+
+        $tolerance = (float) config('payments.amount_tolerance', 0.01);
+
+        // لو البوابة بعتت مبلغًا، لازم يطابق إجمالي الطلب.
+        if ($result->amount !== null && abs((float) $order->total - (float) $result->amount) > $tolerance) {
+            AuditLog::record('payment.webhook.amount_mismatch', $order, [
+                'expected' => (float) $order->total,
+                'received' => (float) $result->amount,
+                'status'   => 'failed',
+            ]);
+
+            return response()->json([
+                'message' => 'مبلغ الـ webhook لا يطابق إجمالي الطلب',
+            ], 422);
         }
 
         $payment = $order->payment()->first();
 
         if (!$payment) {
-            return response()->json(['message' => 'لا يوجد سجل دفع لهذا الطلب'], 404);
+            AuditLog::record('payment.webhook.missing_payment', $order, [
+                'status' => 'failed',
+            ]);
+
+            return response()->json([
+                'message' => 'لا يوجد سجل دفع لهذا الطلب، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
+        }
+
+        if ($payment->payment_method !== $request->route('gateway')) {
+            AuditLog::record('payment.webhook.gateway_mismatch', $payment, [
+                'expected_gateway' => $payment->payment_method,
+                'received_gateway' => $request->route('gateway'),
+                'status'           => 'failed',
+            ]);
+
+            return response()->json([
+                'message' => 'بوابة الـ webhook لا تطابق طريقة دفع الطلب، تم تجاهل الحدث',
+                'status'  => 'ignored',
+            ]);
         }
 
         if ($payment->status === 'paid') {

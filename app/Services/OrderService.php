@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Coupon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Database\UniqueConstraintViolationException;
 use App\Notifications\OrderStatusUpdated;
 use App\Notifications\NewCommission;
 
@@ -125,8 +126,7 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
             }
 
             // 6. إنشاء الطلب أولاً
-            $order = Order::create([
-                'order_number'        => $this->generateOrderNumber(),
+            $order = $this->createOrderRecord([
                 'customer_id'         => $customer->id,
                 'influencer_id'       => $link?->influencer_id,
                 'promotional_link_id' => $link?->id,
@@ -333,18 +333,36 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
         });
 
         if ($changed) {
-            $order->customer->notify(new OrderStatusUpdated($order));
+            $orderId = $order->id;
+            $commissionTotal = (float) $commissions->sum('commission_amount');
+            // لو في عمولات معلّقة، نبعت تاريخ إتاحتها في الإشعار
+            $availableAt = $commissions->where('status', 'pending')->min('available_at');
 
-            if ($commissions->isNotEmpty()) {
-                // لو في عمولات معلّقة، نبعت تاريخ إتاحتها في الإشعار
-                $availableAt = $commissions->where('status', 'pending')->min('available_at');
+            // الإشعارات بعد commit فقط: updateStatus ممكن تكون متداخلة داخل
+            // transaction أكبر (markPaid/markRefunded) والإشعار قبل commit
+            // ممكن يبعت للعميل بحالة لسه مااتحفظتش.
+            DB::afterCommit(function () use ($orderId, $commissions, $commissionTotal, $availableAt) {
+                $fresh = Order::with(['customer', 'influencer'])->find($orderId);
 
-                $order->influencer->notify(new NewCommission(
-                    $order->id,
-                    (float) $commissions->sum('commission_amount'),
-                    $availableAt?->toDateTimeString()
-                ));
-            }
+                if (!$fresh) {
+                    return;
+                }
+
+                try {
+                    $fresh->customer?->notify(new OrderStatusUpdated($fresh));
+
+                    if ($commissions->isNotEmpty() && $fresh->influencer) {
+                        $fresh->influencer->notify(new NewCommission(
+                            $fresh->id,
+                            $commissionTotal,
+                            $availableAt?->toDateTimeString()
+                        ));
+                    }
+                } catch (\Throwable $e) {
+                    // تغيير الحالة تم بالفعل؛ فشل الإشعار لا يجب أن يرجع 500 للعميل.
+                    report($e);
+                }
+            });
         }
 
         return $order;
@@ -512,12 +530,15 @@ if ($product->stock < $qty) {
 
     /**
      * نسبة العمولة القادمة من pivot influencer_product.
-     * null = غير مؤهل، وأي قيمة خارج 0..100 تُعتبر غير صالحة.
+     *
+     * null / '' = النسبة الافتراضية (INFLUENCER_DEFAULT_COMMISSION)،
+     * وأي قيمة غير رقمية أو خارج 0..100 تُعتبر غير صالحة (غير مؤهل).
+     * 0 = مؤهل بنسبة صفر.
      */
     protected static function resolveCommissionPercentage(mixed $value): ?float
     {
         if ($value === null || $value === '') {
-            return null;
+            return InfluencerCommissionService::resolvePercentage(null);
         }
 
         if (!is_numeric($value)) {
@@ -533,11 +554,30 @@ if ($product->stock < $qty) {
         return round($percentage, 2);
     }
 
+    protected function createOrderRecord(array $attributes): Order
+    {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                // transaction متداخلة = savepoint، تسمح بإعادة المحاولة بأمان.
+                return DB::transaction(fn () => Order::create([
+                    ...$attributes,
+                    'order_number' => $this->generateOrderNumber(),
+                ]));
+            } catch (UniqueConstraintViolationException $e) {
+                if ($attempt === 3) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new \RuntimeException('تعذر إنشاء رقم طلب فريد.');
+    }
+
     protected function generateOrderNumber(): string
     {
         do {
             $number = 'ORD-' . strtoupper(Str::random(8));
-        } while (Order::where('order_number', $number)->exists());
+        } while (Order::withTrashed()->where('order_number', $number)->exists());
 
         return $number;
     }

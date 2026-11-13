@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\PromotionalLink;
 use Illuminate\Http\Request;
@@ -11,9 +13,16 @@ class PromotionalLinkController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'influencer_id' => 'nullable|integer|exists:users,id',
+            'product_id'    => 'nullable|integer|exists:products,id',
+            'is_active'     => 'nullable|boolean',
+            'search'        => 'nullable|string|max:100',
+        ]);
+
         $links = PromotionalLink::with(['influencer:id,name', 'product:id,name'])
             ->withSum(['orders as sales_total' => function ($q) {
-                $q->whereNotIn('status', Order::NON_SALE_STATUSES);
+                $q->whereIn('status', Order::SALE_STATUSES);
             }], 'total')
             ->when($request->influencer_id, fn ($q, $id) => $q->where('influencer_id', $id))
             ->when($request->product_id, fn ($q, $id) => $q->where('product_id', $id))
@@ -31,7 +40,7 @@ class PromotionalLinkController extends Controller
     {
         $link->load(['influencer:id,name', 'product:id,name'])
              ->loadSum(['orders as sales_total' => function ($q) {
-                 $q->whereNotIn('status', Order::NON_SALE_STATUSES);
+                 $q->whereIn('status', Order::SALE_STATUSES);
              }], 'total');
 
         return response()->json($this->format($link));
@@ -46,15 +55,23 @@ class PromotionalLinkController extends Controller
         ]);
 
         if (
-    array_key_exists('product_id', $data)
-    && (int) ($data['product_id'] ?? 0) !== (int) ($link->product_id ?? 0)
-    && $link->orders()->exists()
-) {
-    return response()->json([
-        'message' => 'لا يمكن تغيير المنتج المرتبط برابط تم استخدامه في طلبات سابقة',
-    ], 422);
-}
+            array_key_exists('product_id', $data)
+            && (int) ($data['product_id'] ?? 0) !== (int) ($link->product_id ?? 0)
+            && $link->orders()->exists()
+        ) {
+            return response()->json([
+                'message' => 'لا يمكن تغيير المنتج المرتبط برابط تم استخدامه في طلبات سابقة',
+            ], 422);
+        }
+
         $link->update($data);
+
+        AuditLog::record('promotional_link.updated', $link, [
+            'product_id' => $link->product_id,
+            'is_active'  => $link->is_active,
+        ]);
+
+        HomeController::flush();
 
         return response()->json($this->format($link->load(['influencer:id,name', 'product:id,name'])));
     }
@@ -62,6 +79,12 @@ class PromotionalLinkController extends Controller
     public function toggle(PromotionalLink $link)
     {
         $link->update(['is_active' => !$link->is_active]);
+
+        AuditLog::record('promotional_link.toggled', $link, [
+            'is_active' => $link->is_active,
+        ]);
+
+        HomeController::flush();
 
         return response()->json([
             'message'   => $link->is_active ? 'تم تفعيل الرابط' : 'تم إيقاف الرابط',

@@ -10,9 +10,19 @@ return [
     // بوابة الشحن الافتراضية (manual = نفس السلوك الحالي)
     'shipping_gateway' => env('SHIPPING_GATEWAY', 'manual'),
     'shipping_webhook_secret' => env('SHIPPING_WEBHOOK_SECRET'),
+    'shipping_signature_header' => env('SHIPPING_SIGNATURE_HEADER', 'X-Shipping-Signature'),
 
     // الطلب اللي فضل 'new' من غير دفع أكتر من المدة دي بيتلغي والمخزون بيرجع (0 = معطّل)
     'unpaid_order_ttl_hours' => (int) env('UNPAID_ORDER_TTL_HOURS', 24),
+
+    /*
+     * طرق الدفع المؤهلة للإلغاء التلقائي عند عدم الدفع.
+     * الدفع اليدوي/COD لا يُلغى تلقائيًا لأن التحصيل بيحصل عند التسليم.
+     */
+    'expire_unpaid_payment_methods' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('EXPIRE_UNPAID_PAYMENT_METHODS', 'easykash'))
+    ))),
 
     'shipping' => [
         'flat_rate'  => (float) env('SHIPPING_FLAT_RATE', 50),

@@ -41,7 +41,7 @@ class InfluencerSalesController extends Controller
             ->when($request->to, fn ($q, $d) => $q->where('created_at', '<=', Carbon::parse($d)->endOfDay()));
 
         $totals = (clone $base)
-            ->whereNotIn('status', Order::NON_SALE_STATUSES)
+            ->whereIn('status', Order::SALE_STATUSES)
             ->selectRaw('COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS sales_total')
             ->first();
 

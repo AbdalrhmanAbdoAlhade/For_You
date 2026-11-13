@@ -34,11 +34,40 @@ class EasyKashGateway implements PaymentGatewayInterface
             $payment->update(['gateway_response' => $response]);
         }
 
+        // رابط الدفع يُبنى من EASYKASH_INITIATE_URL (لو مضبوط).
+        $baseUrl = (string) config('payments.gateways.easykash.initiate_url', '');
+        $paymentUrl = null;
+
+        if ($baseUrl !== '') {
+            $params = [
+                'merchant_id'  => (string) config('payments.gateways.easykash.merchant_id', ''),
+                'order_number' => $order->order_number,
+                'amount'       => number_format((float) $order->total, 2, '.', ''),
+                'currency'     => 'EGP',
+                'reference'    => $reference,
+                'timestamp'    => now()->timestamp,
+            ];
+
+            // توقيع الرابط حتى لا يقدر حد يعبث بالمبلغ/رقم الطلب.
+            $secret = (string) (
+                config('payments.gateways.easykash.initiate_secret')
+                ?: config('payments.gateways.easykash.secret')
+            );
+
+            if ($secret !== '') {
+                $params['signature'] = $this->signParams($params, $secret);
+            }
+
+            $paymentUrl = $baseUrl
+                . (str_contains($baseUrl, '?') ? '&' : '?')
+                . http_build_query($params);
+        }
+
         return [
             'gateway'              => $this->name(),
             'status'               => 'pending',
             'transaction_reference' => $reference,
-            'payment_url'          => null, // TODO: رابط البوابة الحقيقي
+            'payment_url'          => $paymentUrl,
             'amount'               => (float) $order->total,
             'currency'             => 'EGP',
             'mode'                 => config('payments.gateways.easykash.mode', 'sandbox'),
@@ -111,6 +140,43 @@ class EasyKashGateway implements PaymentGatewayInterface
 
         $expected = hash_hmac('sha256', $request->getContent(), $secret);
 
-        return hash_equals($expected, strtolower($signature));
+        if (!hash_equals($expected, strtolower($signature))) {
+            return false;
+        }
+
+        /*
+         * حماية اختيارية من إعادة الإرسال (replay): لو webhook_tolerance > 0
+         * لازم الـ payload يحتوي timestamp قريب من الوقت الحالي.
+         */
+        $tolerance = (int) config('payments.gateways.easykash.webhook_tolerance', 0);
+
+        if ($tolerance > 0) {
+            $payload = $request->json()->all();
+            $timestamp = is_array($payload) ? ($payload['timestamp'] ?? null) : null;
+
+            if (!is_numeric($timestamp)
+                || abs(now()->timestamp - (int) $timestamp) > $tolerance) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * توقيع معاملات رابط الدفع: ترتيب أبجدي ثم HMAC SHA-256.
+     *
+     * @param array<string, mixed> $params
+     */
+    protected function signParams(array $params, string $secret): string
+    {
+        unset($params['signature']);
+        ksort($params);
+
+        return hash_hmac(
+            'sha256',
+            http_build_query($params, '', '&', PHP_QUERY_RFC3986),
+            $secret
+        );
     }
 }

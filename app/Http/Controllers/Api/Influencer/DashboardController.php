@@ -16,9 +16,9 @@ class DashboardController extends Controller
 
         abort_if($influencer->type !== 'influencer', 403);
 
-        // المبيعات: من غير الطلبات الملغية والمرتجعة
+        // المبيعات: الحالات المحققة للبيع فقط (delivered) — نفس تعريف التقارير
         $sales = Order::where('influencer_id', $influencer->id)
-            ->whereNotIn('status', Order::NON_SALE_STATUSES)
+            ->whereIn('status', Order::SALE_STATUSES)
             ->selectRaw('COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS sales_total')
             ->first();
 

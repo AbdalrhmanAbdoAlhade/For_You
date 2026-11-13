@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\OrderService;
+use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Concerns\HandlesIdempotency;
 use App\Http\Resources\OrderResource;
@@ -13,7 +14,8 @@ class OrderController extends Controller
  
     
     public function __construct(
-        protected OrderService $orderService
+        protected OrderService $orderService,
+        protected PaymentService $paymentService
     ) {}
 
        public function store(Request $request)
@@ -53,6 +55,13 @@ class OrderController extends Controller
             ->latest()
             ->paginate(10);
 
+        // نحافظ على شكل الـ paginator الحالي مع إخفاء بيانات البوابة والعمولة.
+        $orders->setCollection(
+            $orders->getCollection()->map(
+                fn ($order) => (new OrderResource($order))->resolve($request)
+            )
+        );
+
         return response()->json($orders);
     }
 
@@ -63,7 +72,7 @@ class OrderController extends Controller
             ->with(['items.product', 'payment', 'shipping'])
             ->findOrFail($id);
 
-        return response()->json($order);
+        return response()->json((new OrderResource($order))->resolve($request));
     }
 
         public function cancel(Request $request, $id)
@@ -76,7 +85,35 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'تم إلغاء الطلب',
-            'order'   => $order,
+            'order'   => (new OrderResource($order))->resolve($request),
+        ]);
+    }
+
+    /**
+     * بدء/إعادة محاولة دفع الطلب عبر بوابة معينة.
+     */
+    public function pay(Request $request, $id)
+    {
+        $data = $request->validate([
+            'gateway' => 'nullable|string|in:' . implode(',', array_keys((array) config('payments.gateways', []))),
+        ]);
+
+        $order = $request->user()
+            ->ordersAsCustomer()
+            ->findOrFail($id);
+
+        try {
+            $payment = $this->paymentService->initiate(
+                $order,
+                $data['gateway'] ?? null
+            );
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'message' => 'تم تجهيز الدفع',
+            'payment' => $payment,
         ]);
     }
 

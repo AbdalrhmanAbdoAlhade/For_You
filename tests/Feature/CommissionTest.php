@@ -135,6 +135,36 @@ class CommissionTest extends TestCase
         $this->assertNull($order->items()->first()->commission_percentage);
     }
 
+    public function test_null_pivot_percentage_falls_back_to_configured_default(): void
+    {
+        config(['services.influencer.default_commission' => 10]);
+
+        [$influencer, $product, $link, $customer] = $this->scenario(10);
+
+        // نرجّع النسبة في الـ pivot لـ null بعد الربط.
+        $influencer->influencerProducts()->updateExistingPivot($product->id, [
+            'commission_percentage' => null,
+        ]);
+
+        $order = $this->createOrder($customer, $product, $link);
+
+        $this->assertSame(10.0, (float) $order->items()->first()->commission_percentage);
+    }
+
+    public function test_zero_pivot_percentage_means_eligible_with_zero_commission(): void
+    {
+        [$influencer, $product, $link, $customer] = $this->scenario(0);
+
+        $order = $this->createOrder($customer, $product, $link);
+
+        $this->assertSame(0.0, (float) $order->items()->first()->commission_percentage);
+
+        $commissions = $this->deliver($order);
+
+        $this->assertCount(1, $commissions);
+        $this->assertSame(0.0, (float) $commissions->first()->commission_amount);
+    }
+
     /**
      * @return array{0: User, 1: Product, 2: PromotionalLink, 3: User}
      */
