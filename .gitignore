@@ -1,4 +1,6 @@
 *.log
+*.sqlite
+*.sqlite-journal
 .DS_Store
 .env
 .env.backup
@@ -49,3 +51,6 @@ storage/app/public/*
 !storage/app/public/.gitignore
 storage/app/private/*
 !storage/app/private/.gitignore
+# قواعد بيانات SQLite المحلية
+/database/*.sqlite
+/database/*.sqlite-journal
