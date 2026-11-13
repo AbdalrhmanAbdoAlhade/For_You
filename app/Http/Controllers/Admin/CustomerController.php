@@ -6,10 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\FileUploadService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class CustomerController extends Controller
 {
+    public function __construct(
+        protected FileUploadService $fileUploadService
+    ) {}
+
     public function index(Request $request)
     {
         $request->validate([
@@ -51,6 +58,65 @@ class CustomerController extends Controller
                 ->latest()->take(10)
                 ->get(['id', 'order_number', 'status', 'total', 'created_at']),
         ]);
+    }
+
+    /**
+     * تعديل بيانات عميل حسب الـ id (أدمن أو موظف بصلاحية customers.manage).
+     * يدعم POST multipart لرفع صورة avatar.
+     */
+    public function update(Request $request, User $customer)
+    {
+        abort_if($customer->type !== 'customer', 404);
+
+        $data = $request->validate([
+            'name'      => 'sometimes|string|max:255',
+            'email'     => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($customer->id)],
+            'phone'     => ['nullable', 'string', 'max:30', Rule::unique('users', 'phone')->ignore($customer->id)],
+            'password'  => 'nullable|string|min:8',
+            'is_active' => 'sometimes|boolean',
+            'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048|dimensions:max_width=2000,max_height=2000',
+        ]);
+
+        $passwordChanged = !empty($data['password']);
+        $emailChanged    = isset($data['email']) && $data['email'] !== $customer->email;
+
+        if ($passwordChanged) {
+            $data['password'] = Hash::make($data['password']);
+        } else {
+            unset($data['password']);
+        }
+
+        if ($request->hasFile('avatar')) {
+            if ($customer->avatar && !str_starts_with($customer->avatar, 'http')) {
+                $this->fileUploadService->delete($customer->avatar);
+            }
+            $data['avatar'] = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
+        } else {
+            unset($data['avatar']);
+        }
+
+        $customer->fill($data);
+
+        if ($emailChanged) {
+            $customer->email_verified_at = null;
+        }
+
+        $customer->save();
+
+        $deactivated = array_key_exists('is_active', $data) && !$customer->is_active;
+
+        // تغيير الباسورد أو تعطيل الحساب = قفل كل الجلسات
+        if ($passwordChanged || $deactivated) {
+            $customer->tokens()->delete();
+        }
+
+        AuditLog::record('customer.updated', $customer, [
+            'fields'           => array_keys($data),
+            'password_changed' => $passwordChanged,
+            'email_changed'    => $emailChanged,
+        ]);
+
+        return response()->json($customer->fresh());
     }
 
     public function toggleStatus(User $customer)

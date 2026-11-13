@@ -17,6 +17,7 @@ class CommissionResource extends JsonResource
             'commission_percentage' => (float) $this->commission_percentage,
             'commission_amount'     => (float) $this->commission_amount,
             'status'                => $this->status,
+            'status_label'          => __('orders.commission_statuses.' . $this->status),
             'paid_at'               => $this->paid_at?->toDateTimeString(),
             'created_at'            => $this->created_at?->toDateTimeString(),
 

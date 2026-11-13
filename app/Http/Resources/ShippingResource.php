@@ -14,6 +14,7 @@ class ShippingResource extends JsonResource
             'shipping_company'  => $this->shipping_company,
             'tracking_number'   => $this->tracking_number,
             'status'            => $this->status,
+            'status_label'      => __('orders.shipping_statuses.' . $this->status),
             'shipping_address'  => $this->shipping_address,
             'shipped_at'        => $this->shipped_at?->toDateTimeString(),
             'delivered_at'      => $this->delivered_at?->toDateTimeString(),

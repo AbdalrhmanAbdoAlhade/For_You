@@ -15,6 +15,7 @@ class PaymentResource extends JsonResource
             'transaction_id'   => $this->transaction_id,
             'amount'           => (float) $this->amount,
             'status'           => $this->status,
+            'status_label'     => __('orders.payment_statuses.' . $this->status),
             'paid_at'          => $this->paid_at?->toDateTimeString(),
             'created_at'       => $this->created_at?->toDateTimeString(),
         ];
