@@ -8,7 +8,7 @@ use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use App\Models\AuditLog;
-وuse Illuminate\Validation\Rule;
+use Illuminate\Validation\Rule;
 
 class PaymentController extends Controller
 {
@@ -20,6 +20,8 @@ class PaymentController extends Controller
     {
         $request->validate([
             'status' => 'nullable|in:pending,paid,failed,refunded',
+            'payment_method' => 'nullable|string|max:50',
+            'search' => 'nullable|string|max:100',
             'from'   => 'nullable|date',
             'to'     => 'nullable|date|after_or_equal:from',
         ]);

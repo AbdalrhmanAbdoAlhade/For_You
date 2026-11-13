@@ -18,6 +18,12 @@ class ProductController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'search'      => 'nullable|string|max:100',
+            'category_id' => 'nullable|integer|exists:categories,id',
+            'is_active'   => 'nullable|boolean',
+        ]);
+
         $products = Product::with('category')
             ->when($request->search, fn ($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
@@ -56,16 +62,28 @@ class ProductController extends Controller
             ]);
         }
 
-        $data['slug'] = Str::slug($data['name']);
+        $data['slug'] = $this->uniqueSlug($data['name']);
 
-        if ($request->hasFile('images')) {
-            $data['images'] = $this->fileUploadService->uploadMultiple(
-                $request->file('images'),
-                'products'
-            );
+        $uploaded = [];
+
+        try {
+            if ($request->hasFile('images')) {
+                $uploaded = $this->fileUploadService->uploadMultiple(
+                    $request->file('images'),
+                    'products'
+                );
+                $data['images'] = $uploaded;
+            }
+
+            $product = Product::create($data);
+        } catch (\Throwable $e) {
+            // فشل حفظ المنتج لا يترك صورًا يتيمة على القرص.
+            foreach ($uploaded as $path) {
+                $this->fileUploadService->delete($path);
+            }
+
+            throw $e;
         }
-
-        $product = Product::create($data);
 
         return new ProductResource($product->load('category'));
     }
@@ -108,23 +126,20 @@ class ProductController extends Controller
         }
 
         if (isset($data['name'])) {
-            $data['slug'] = Str::slug($data['name']);
+            $data['slug'] = $this->uniqueSlug($data['name'], $product->id);
         }
 
         // الصور: مسح المطلوب + رفع الجديد، مع الإبقاء على الباقي
         $current = $product->images ?? [];
 
-        $toRemove = array_intersect($request->input('remove_images', []), $current);
-        foreach ($toRemove as $path) {
-            $this->fileUploadService->delete($path);
-        }
+        $toRemove = array_values(array_intersect($request->input('remove_images', []), $current));
         $current = array_values(array_diff($current, $toRemove));
 
+        $uploaded = [];
+
         if ($request->hasFile('images')) {
-            $current = array_merge(
-                $current,
-                $this->fileUploadService->uploadMultiple($request->file('images'), 'products')
-            );
+            $uploaded = $this->fileUploadService->uploadMultiple($request->file('images'), 'products');
+            $current = array_merge($current, $uploaded);
         }
 
         unset($data['images'], $data['remove_images']);
@@ -133,7 +148,21 @@ class ProductController extends Controller
             $data['images'] = $current;
         }
 
-        $product->update($data);
+        try {
+            $product->update($data);
+        } catch (\Throwable $e) {
+            // فشل التحديث: نحذف الصور الجديدة فقط ونبقي القديمة.
+            foreach ($uploaded as $path) {
+                $this->fileUploadService->delete($path);
+            }
+
+            throw $e;
+        }
+
+        // الحذف من القرص بعد نجاح التحديث فقط.
+        foreach ($toRemove as $path) {
+            $this->fileUploadService->delete($path);
+        }
 
         return response()->json($product->load('category'));
     }
@@ -143,5 +172,31 @@ class ProductController extends Controller
         $product->delete();
 
         return response()->json(['message' => 'تم حذف المنتج بنجاح']);
+    }
+
+    /**
+     * slug فريد مع تجاهل السجلات المحذوفة soft-delete (زي Category).
+     */
+    protected function uniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name);
+
+        if ($base === '') {
+            $base = 'product-' . Str::random(8);
+        }
+
+        $slug = $base;
+        $i = 1;
+
+        while (
+            Product::withTrashed()
+                ->where('slug', $slug)
+                ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+                ->exists()
+        ) {
+            $slug = $base . '-' . $i++;
+        }
+
+        return $slug;
     }
 }

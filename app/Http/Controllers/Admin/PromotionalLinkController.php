@@ -11,6 +11,13 @@ class PromotionalLinkController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'influencer_id' => 'nullable|integer|exists:users,id',
+            'product_id'    => 'nullable|integer|exists:products,id',
+            'is_active'     => 'nullable|boolean',
+            'search'        => 'nullable|string|max:100',
+        ]);
+
         $links = PromotionalLink::with(['influencer:id,name', 'product:id,name'])
             ->withSum(['orders as sales_total' => function ($q) {
                 $q->whereNotIn('status', Order::NON_SALE_STATUSES);

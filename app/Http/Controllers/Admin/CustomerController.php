@@ -11,6 +11,11 @@ class CustomerController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $customers = User::customers()
             ->withCount('ordersAsCustomer as orders_count')
             ->withSum(['ordersAsCustomer as total_spent' => function ($q) {

@@ -14,11 +14,14 @@ use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
 {
-    /** الحالات اللي مبتتحسبش مبيعات */
-    protected const EXCLUDED_STATUSES = ['cancelled', 'returned'];
-
     /** العمولات اللي اتكسبت فعلاً */
     protected const EARNED_COMMISSION_STATUSES = ['approved', 'paid'];
+
+    /** الحالات اللي بتتحسب مبيعات فعلية (delivered فقط) */
+    protected function saleStatuses(): array
+    {
+        return Order::SALE_STATUSES;
+    }
 
     public function sales(Request $request)
     {
@@ -27,11 +30,13 @@ class ReportController extends Controller
             'to'   => 'nullable|date|after_or_equal:from',
         ]);
 
-        $from = Carbon::parse($request->get('from', now()->subDays(30)))->startOfDay();
-        $to   = Carbon::parse($request->get('to', now()))->endOfDay();
+        $timezone = config('app.timezone');
+
+        $from = Carbon::parse($request->get('from', now($timezone)->subDays(30)), $timezone)->startOfDay();
+        $to   = Carbon::parse($request->get('to', now($timezone)), $timezone)->endOfDay();
 
         $sales = Order::whereBetween('created_at', [$from, $to])
-            ->whereNotIn('status', self::EXCLUDED_STATUSES)
+            ->whereIn('status', $this->saleStatuses())
             ->select(
                 DB::raw('DATE(created_at) as date'),
                 DB::raw('COUNT(*) as orders_count'),
@@ -59,10 +64,10 @@ class ReportController extends Controller
                 $q->whereIn('status', self::EARNED_COMMISSION_STATUSES);
             }], 'commission_amount')
             ->withCount(['ordersAsInfluencer as total_orders' => function ($q) {
-                $q->whereNotIn('status', self::EXCLUDED_STATUSES);
+                $q->whereIn('status', $this->saleStatuses());
             }])
             ->withSum(['ordersAsInfluencer as total_sales' => function ($q) {
-                $q->whereNotIn('status', self::EXCLUDED_STATUSES);
+                $q->whereIn('status', $this->saleStatuses());
             }], 'total')
             ->with('wallet')
             ->orderByRaw('COALESCE(total_commission, 0) DESC')
@@ -89,14 +94,16 @@ class ReportController extends Controller
         $query = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->whereNull('orders.deleted_at')
-            ->whereNotIn('orders.status', self::EXCLUDED_STATUSES);
+            ->whereIn('orders.status', $this->saleStatuses());
+
+        $timezone = config('app.timezone');
 
         if ($request->filled('from')) {
-            $query->where('orders.created_at', '>=', Carbon::parse($request->from)->startOfDay());
+            $query->where('orders.created_at', '>=', Carbon::parse($request->from, $timezone)->startOfDay());
         }
 
         if ($request->filled('to')) {
-            $query->where('orders.created_at', '<=', Carbon::parse($request->to)->endOfDay());
+            $query->where('orders.created_at', '<=', Carbon::parse($request->to, $timezone)->endOfDay());
         }
 
         $products = $query
@@ -123,8 +130,9 @@ class ReportController extends Controller
     public function overview()
     {
         return response()->json([
-            'total_sales'         => (float) Order::whereNotIn('status', self::EXCLUDED_STATUSES)->sum('total'),
+            'total_sales'         => (float) Order::whereIn('status', $this->saleStatuses())->sum('total'),
             'total_orders'        => Order::count(),
+            'sales_orders'        => Order::whereIn('status', $this->saleStatuses())->count(),
             'total_customers'     => User::customers()->count(),
             'total_influencers'   => User::influencers()->count(),
             'total_commissions'   => (float) InfluencerCommission::whereIn('status', self::EARNED_COMMISSION_STATUSES)

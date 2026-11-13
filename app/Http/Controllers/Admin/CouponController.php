@@ -12,6 +12,11 @@ class CouponController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $coupons = Coupon::when($request->search, fn ($q, $s) => $q->where('code', 'like', "%{$s}%"))
             ->when($request->has('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')))
             ->latest()

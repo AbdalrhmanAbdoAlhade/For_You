@@ -14,6 +14,11 @@ class EmployeeController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $employees = User::employees()
             ->with('roles')
             ->when($request->filled('search'), function ($q) use ($request) {
@@ -116,7 +121,9 @@ class EmployeeController extends Controller
         }
 
         // تغيير الباسورد أو تعطيل الحساب = قفل كل الجلسات
-        if ($passwordChanged || ($data['is_active'] ?? true) === false) {
+        $deactivated = array_key_exists('is_active', $data) && !$employee->is_active;
+
+        if ($passwordChanged || $deactivated) {
             $employee->tokens()->delete();
         }
 

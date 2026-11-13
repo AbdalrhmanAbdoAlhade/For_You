@@ -18,6 +18,11 @@ class InfluencerController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'search'    => 'nullable|string|max:100',
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $influencers = User::influencers()
             ->with('wallet')
             ->when($request->search, function ($q) use ($request) {
@@ -140,7 +145,7 @@ class InfluencerController extends Controller
         // منع الحذف لو فيه رصيد أو سحوبات/عمولات معلّقة
         $wallet = $influencer->wallet;
 
-        if ($wallet && ((float) $wallet->balance > 0 || (float) $wallet->total_earned > 0)) {
+        if ($wallet && (round((float) $wallet->balance, 2) !== 0.0 || (float) $wallet->total_earned > 0)) {
             return response()->json([
                 'message' => 'لا يمكن حذف مؤثر لديه رصيد أو أرباح مسجّلة. عطّل الحساب بدلاً من الحذف.',
             ], 422);
@@ -157,7 +162,7 @@ class InfluencerController extends Controller
         }
 
         $hasPendingCommissions = $influencer->commissions()
-            ->whereIn('status', ['pending', 'available'])
+            ->whereIn('status', ['pending', 'approved'])
             ->exists();
 
         if ($hasPendingCommissions) {

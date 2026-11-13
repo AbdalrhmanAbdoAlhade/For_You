@@ -19,6 +19,10 @@ class CategoryController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'search' => 'nullable|string|max:100',
+        ]);
+
         $categories = Category::with('parent')
             ->when($request->search, fn ($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->orderBy('sort_order')

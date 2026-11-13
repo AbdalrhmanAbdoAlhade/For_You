@@ -14,8 +14,13 @@ class OrderController extends Controller
         protected OrderService $orderService
     ) {}
 
-        public function index(Request $request)
+    public function index(Request $request)
     {
+        $request->validate([
+            'status' => 'nullable|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
+            'search' => 'nullable|string|max:100',
+        ]);
+
         $orders = Order::with(['customer', 'influencer', 'payment', 'shipping'])
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->search, function ($q) use ($request) {

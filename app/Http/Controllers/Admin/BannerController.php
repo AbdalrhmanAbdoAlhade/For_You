@@ -15,6 +15,10 @@ class BannerController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate([
+            'is_active' => 'nullable|boolean',
+        ]);
+
         $banners = Banner::when($request->has('is_active'), fn ($q) => $q->where('is_active', $request->boolean('is_active')))
             ->orderBy('sort_order')
             ->paginate(20);
