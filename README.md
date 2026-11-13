@@ -124,13 +124,15 @@ php artisan test
 | `APP_TIMEZONE` | `Africa/Cairo` | المنطقة الزمنية المستخدمة في التقارير والتواريخ |
 | `APP_LOCALE` | `ar` | لغة الرسائل الافتراضية |
 | `DB_*` | MySQL | إعدادات قاعدة البيانات |
+| `DB_TIMEZONE` | — | توقيت جلسة MySQL (اختياري، مثل `+00:00`) |
 | `FRONTEND_URL` | `http://localhost:3000` | رابط الواجهة (reset password) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | — | إنشاء Super Admin عند `migrate --seed` (مطلوب في production) |
-| `PAYMENT_GATEWAY` | `easykash` | بوابة الدفع الافتراضية |
+| `PAYMENT_GATEWAY` | `manual` | بوابة الدفع الافتراضية |
 | `PAYMENT_METHODS` | `manual,easykash` | طرق الدفع المقبولة في الطلبات |
 | `EASYKASH_WEBHOOK_SECRET` | — | سر HMAC لتوقيع webhook الدفع |
 | `SHIPPING_GATEWAY` | `manual` | بوابة الشحن |
 | `SHIPPING_WEBHOOK_SECRET` | — | سر HMAC لتوقيع webhook الشحن |
+| `SHIPPING_SIGNATURE_HEADER` | `X-Shipping-Signature` | اسم هيدر توقيع webhook الشحن |
 | `SHIPPING_FLAT_RATE` | `50` | تكلفة الشحن الثابتة |
 | `SHIPPING_FREE_OVER` | — | شحن مجاني فوق مبلغ معين |
 | `INFLUENCER_DEFAULT_COMMISSION` | `10` | نسبة العمولة الافتراضية |

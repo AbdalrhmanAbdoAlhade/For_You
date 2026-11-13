@@ -9,9 +9,12 @@ return [
     | لتفعيل بوابة حقيقية: أضف driver جديد في PaymentGatewayManager وحدد
     | الـ secret وبيانات الـ merchant من الـ environment.
     */
-    'default' => env('PAYMENT_GATEWAY', 'easykash'),
+    'default' => env('PAYMENT_GATEWAY', 'manual'),
 
     'gateways' => [
+        'manual' => [
+            // الدفع اليدوي: يؤكده الإدمن من لوحة التحكم، بلا webhooks.
+        ],
         'easykash' => [
             // سر توقيع الـ webhook (HMAC SHA-256 على الـ raw body)
             'secret'           => env('EASYKASH_WEBHOOK_SECRET'),

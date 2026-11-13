@@ -10,6 +10,7 @@ return [
     // بوابة الشحن الافتراضية (manual = نفس السلوك الحالي)
     'shipping_gateway' => env('SHIPPING_GATEWAY', 'manual'),
     'shipping_webhook_secret' => env('SHIPPING_WEBHOOK_SECRET'),
+    'shipping_signature_header' => env('SHIPPING_SIGNATURE_HEADER', 'X-Shipping-Signature'),
 
     // الطلب اللي فضل 'new' من غير دفع أكتر من المدة دي بيتلغي والمخزون بيرجع (0 = معطّل)
     'unpaid_order_ttl_hours' => (int) env('UNPAID_ORDER_TTL_HOURS', 24),

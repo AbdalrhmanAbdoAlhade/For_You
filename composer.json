@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "for-you/store-api",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "For You — Laravel REST API for an e-commerce store with an influencer affiliate program.",
+    "keywords": ["laravel", "ecommerce", "api", "affiliate", "influencers"],
     "license": "MIT",
     "require": {
         "php": "^8.3",
