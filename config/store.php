@@ -30,6 +30,27 @@ return [
         'free_over'  => env('SHIPPING_FREE_OVER') !== null ? (float) env('SHIPPING_FREE_OVER') : null,
         // أسعار خاصة بالمدن: 'القاهرة' => 40
         'city_rates' => [],
+
+        // NEW: طرق الشحن
+        'methods' => [
+            'standard' => [
+                'key'      => 'standard',
+                'label'    => env('SHIPPING_STANDARD_LABEL', 'Standard'),
+                'cost'     => (float) env('SHIPPING_STANDARD_COST', 60),
+                'eta_days' => (int) env('SHIPPING_STANDARD_ETA_DAYS', 4),
+            ],
+            'express' => [
+                'key'      => 'express',
+                'label'    => env('SHIPPING_EXPRESS_LABEL', 'Express'),
+                'cost'     => (float) env('SHIPPING_EXPRESS_COST', 120),
+                'eta_days' => (int) env('SHIPPING_EXPRESS_ETA_DAYS', 1),
+            ],
+        ],
+        'default_method' => env('SHIPPING_DEFAULT_METHOD', 'standard'),
+
+        // NEW: COD
+        'cod_fee'            => (float) env('SHIPPING_COD_FEE', 10),
+        'cod_payment_method' => env('SHIPPING_COD_PAYMENT_METHOD', 'manual'),
     ],
 
     // لازم اللي وافق على السحب غير اللي نفّذ التحويل (مبدأ الشخصين). خليه false لو عندك أدمن واحد بس

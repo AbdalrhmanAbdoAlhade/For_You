@@ -38,7 +38,10 @@ return [
     'private_key'   => env('APPLE_PRIVATE_KEY'),
 ],
    
-
+'fcm' => [
+    'credentials_path' => env('FIREBASE_CREDENTIALS'),
+    'project_id'       => env('FIREBASE_PROJECT_ID'),
+],
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
