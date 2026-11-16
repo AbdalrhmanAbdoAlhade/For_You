@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\CreatorProfileController;
 
 // ===== Influencer area =====
 use App\Http\Controllers\Api\Influencer\DashboardController as InfluencerDashboardController;
@@ -53,23 +54,61 @@ use App\Http\Controllers\Api\RecommendationController;
 use App\Http\Controllers\Api\Influencer\StoryController as InfluencerStoryController;
 use App\Http\Controllers\Admin\BrandController as AdminBrandController;
 use App\Http\Controllers\Admin\InfluencerStoryController as AdminInfluencerStoryController;
+use App\Http\Controllers\Api\ReviewController;
+use App\Http\Controllers\Admin\ReviewController as AdminReviewController;
+use App\Http\Controllers\Admin\ProductVariantController;
+use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\DeviceController;
+use App\Http\Controllers\Api\FaqController;
+use App\Http\Controllers\Api\SupportController;
+
 
 // ======================================================================
 // Public Routes
 // ======================================================================
 
+Route::get('faqs', [FaqController::class, 'index']);
+Route::get('support/contact', [SupportController::class, 'contact']);
+
+Route::get('categories/{id}/brands', [ApiCategoryController::class, 'brands']);
+Route::get('influencers/{id}', [CreatorProfileController::class, 'show']);
+Route::get('influencers/{id}/picks', [CreatorProfileController::class, 'picks']);
 // ---- Auth ----
 // كل route له limiter خاص بيه (متعرّفين في AppServiceProvider)
 Route::post('register', [AuthController::class, 'register'])->middleware('throttle:register');
 Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
 Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:forgot-password');
 Route::post('auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:reset-password');
+Route::post('auth/forgot-password-otp', [AuthController::class, 'forgotPasswordOtp'])->middleware('throttle:3,1');
+Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:5,1');
+Route::post('auth/reset-password-otp', [AuthController::class, 'resetPasswordOtp'])->middleware('throttle:3,1');
 
 // ---- Social Login ----
 Route::prefix('auth')->middleware('throttle:social')->group(function () {
     Route::get('{provider}/redirect', [SocialAuthController::class, 'redirect']);
     Route::get('{provider}/callback', [SocialAuthController::class, 'callback']);
     Route::post('{provider}/token', [SocialAuthController::class, 'loginWithToken']);
+});
+
+
+// ==================== Reviews (Public) ====================
+Route::get('products/{product}/reviews', [ReviewController::class, 'productIndex']);
+Route::get('products/{product}/reviews/summary', [ReviewController::class, 'productSummary']);
+Route::get('products/{product}/related', [ApiProductController::class, 'related']);
+
+Route::get('brands/{brand}/reviews', [ReviewController::class, 'brandIndex']);
+Route::get('brands/{brand}/reviews/summary', [ReviewController::class, 'brandSummary']);
+
+Route::get('influencers/{user}/reviews', [ReviewController::class, 'userIndex']);
+
+// ---- Search ----
+Route::prefix('search')->group(function () {
+    Route::get('/', [SearchController::class, 'unified']);
+    Route::get('products', [SearchController::class, 'products']);
+    Route::get('brands', [SearchController::class, 'brands']);
+    Route::get('creators', [SearchController::class, 'creators']);
+    Route::get('trending', [SearchController::class, 'trending']);
+    Route::get('recent', [SearchController::class, 'recent'])->middleware('auth:sanctum');
 });
 
 // ---- Store ----
@@ -84,7 +123,8 @@ Route::get('products/featured', [ApiProductController::class, 'featured']);
 Route::get('products/offers', [HomeController::class, 'offers']);
 Route::get('products/new', [HomeController::class, 'newArrivals']);
 Route::get('products/trending', [RecommendationController::class, 'trending']);
-Route::get('products/{id}', [ApiProductController::class, 'show']);
+Route::get('products/{product}', [ApiProductController::class, 'show']);
+Route::get('products/{product}/variants', [ApiProductController::class, 'variants']);
 
 Route::get('influencers', [StoreInfluencerController::class, 'index']);
 Route::get('influencers/{id}/products', [StoreInfluencerController::class, 'products']);
@@ -110,16 +150,21 @@ Route::post('webhooks/shipping/{gateway}', [ShippingWebhookController::class, 'h
 // ======================================================================
 Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function () {
 
+  Route::patch('language', [AuthController::class, 'updateLanguage']);
+  	// ---- Devices (FCM) ----
+Route::prefix('devices')->group(function () {
+    Route::get('/', [DeviceController::class, 'index']);
+    Route::post('/', [DeviceController::class, 'store']);
+    Route::delete('/', [DeviceController::class, 'destroy']);
+});
      // ---- Account ----
-    Route::prefix('auth')->group(function () {
-        Route::get('me', [AuthController::class, 'me']);
-        Route::post('logout', [AuthController::class, 'logout']);
-       // routes/api.php — داخل auth group
-        Route::match(['post', 'put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
-        // throttle:change-password عشان محدش يخمّن الباسورد الحالي بتوكن مسروق
-        Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:change-password');
-    });
-
+Route::prefix('auth')->group(function () {
+    Route::get('me', [AuthController::class, 'me']);
+    Route::post('logout', [AuthController::class, 'logout']);
+    Route::match(['post', 'put', 'patch'], 'profile', [AuthController::class, 'updateProfile']);
+    Route::post('change-password', [AuthController::class, 'changePassword'])->middleware('throttle:change-password');
+    Route::patch('language', [AuthController::class, 'updateLanguage']);  // ← جديد
+});
     // ---- Addresses ----
     Route::prefix('addresses')->group(function () {
         Route::get('/', [AddressController::class, 'index']);
@@ -136,6 +181,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::post('{id}/cancel', [OrderController::class, 'cancel']);
         Route::post('{id}/pay', [OrderController::class, 'pay']);
         Route::get('{id}', [OrderController::class, 'show']);
+      Route::get('{id}/tracking', [OrderController::class, 'tracking']);
+       Route::post('{id}/buy-again', [OrderController::class, 'buyAgain']);
     });
     // ---- Cart ----
     Route::prefix('cart')->group(function () {
@@ -179,6 +226,11 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('wishlist/ids', [WishlistController::class, 'ids']);
         Route::post('products/{id}/like', [WishlistController::class, 'like']);
         Route::delete('products/{id}/like', [WishlistController::class, 'unlike']);
+          // ---- Reviews (كتابة) ----
+        Route::get('products/{product}/review-state', [ReviewController::class, 'state']);
+        Route::post('products/{product}/reviews', [ReviewController::class, 'store']);
+        Route::match(['put', 'patch'], 'reviews/{review}', [ReviewController::class, 'update']);
+        Route::delete('reviews/{review}', [ReviewController::class, 'destroy']);
   
     // ==================================================================
     // Influencer Area (My Products / My Sales / My Percentage / My Wallet)
@@ -189,8 +241,9 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('percentage', [InfluencerProductController::class, 'percentage']);
         Route::get('links', [InfluencerLinkController::class, 'index']);
         Route::get('sales', [InfluencerSalesApiController::class, 'index']);
-
-
+Route::post('links', [InfluencerLinkController::class, 'store'])->middleware('throttle:20,1');
+      
+Route::get('sales/by-product', [InfluencerSalesApiController::class, 'byProduct']);
 
         Route::get('wallet', [InfluencerWalletController::class, 'show']);
         Route::post('wallet/withdraw', [InfluencerWalletController::class, 'requestWithdrawal']);
@@ -207,6 +260,14 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
     // ==================================================================
     Route::prefix('admin')->middleware('admin')->group(function () {
 
+      Route::get('reports/customers', [ReportController::class, 'customers'])
+    ->middleware('permission:reports.view');
+Route::get('reports/categories', [ReportController::class, 'categories'])
+    ->middleware('permission:reports.view');
+      	// ---- Reviews ----
+        Route::get('reviews', [AdminReviewController::class, 'index'])->middleware('permission:reviews.manage');
+        Route::patch('reviews/{review}/active', [AdminReviewController::class, 'setActive'])->middleware('permission:reviews.manage');
+        Route::delete('reviews/{review}', [AdminReviewController::class, 'destroy'])->middleware('permission:reviews.manage');
               // ---- Brands ----
         Route::get('brands', [AdminBrandController::class, 'index'])->middleware('permission:brands.view');
         Route::get('brands/{brand}', [AdminBrandController::class, 'show'])->middleware('permission:brands.view');
@@ -236,13 +297,25 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::post('products', [ProductController::class, 'store'])->middleware('permission:products.create');
         Route::match(['put', 'post'], 'products/{product}', [ProductController::class, 'update'])->middleware('permission:products.edit');
         Route::delete('products/{product}', [ProductController::class, 'destroy'])->middleware('permission:products.delete');
+      
+              // ---- Product Variants ----
+        Route::get('products/{product}/variants', [ProductVariantController::class, 'index'])
+            ->middleware('permission:products.view');
+        Route::post('products/{product}/variants', [ProductVariantController::class, 'store'])
+            ->middleware('permission:products.edit');
+        Route::put('products/{product}/variants/{variant}', [ProductVariantController::class, 'update'])
+            ->middleware('permission:products.edit');
+        Route::delete('products/{product}/variants/{variant}', [ProductVariantController::class, 'destroy'])
+            ->middleware('permission:products.edit');
+        Route::post('products/{product}/convert-to-variants', [ProductVariantController::class, 'convert'])
+            ->middleware('permission:products.edit');
 
         // ---- Orders ----
         Route::get('orders', [AdminOrderController::class, 'index'])->middleware('permission:orders.view,orders.manage');
         Route::get('orders/{order}', [AdminOrderController::class, 'show'])->middleware('permission:orders.view,orders.manage');
         Route::patch('orders/{order}/status', [AdminOrderController::class, 'updateStatus'])->middleware('permission:orders.update,orders.manage,orders.cancel');
         Route::post('orders/{order}/shipping', [ShippingController::class, 'store'])->middleware('permission:shipping.manage');
-
+        Route::get('orders/{order}/tracking', [AdminOrderController::class, 'tracking'])->middleware('permission:orders.view,orders.manage');
         // ---- Customers ----
         Route::get('customers', [CustomerController::class, 'index'])->middleware('permission:customers.view,customers.manage');
         Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:customers.view,customers.manage');
@@ -308,6 +381,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::match(['put', 'post'], 'coupons/{coupon}', [CouponController::class, 'update'])->middleware('permission:coupons.edit');
         Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->middleware('permission:coupons.delete');
 
+      		Route::post('coupons/{coupon}/broadcast', [CouponController::class, 'broadcast'])
+    ->middleware('permission:coupons.edit');
         // ---- Reports ----
         Route::get('reports/overview', [ReportController::class, 'overview'])->middleware('permission:reports.view');
         Route::get('reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.sales,reports.view');
@@ -321,6 +396,8 @@ Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function ()
         Route::get('roles/{role}', [RoleController::class, 'show'])->middleware('permission:roles.manage');
         Route::match(['put', 'patch'], 'roles/{role}', [RoleController::class, 'update'])->middleware('permission:roles.manage');
         Route::delete('roles/{role}', [RoleController::class, 'destroy'])->middleware('permission:roles.manage');
+      
+     
 
         // ---- Employees ----
         Route::get('employees', [EmployeeController::class, 'index'])->middleware('permission:employees.view');
