@@ -58,14 +58,17 @@ class ReviewController extends Controller
     }
 
     /** GET /influencers/{user}/reviews  (أو users/{user}/reviews) */
-    public function userIndex(Request $request, User $user)
-    {
-        $perPage = min((int) $request->get('per_page', 10), 50);
+  public function userIndex(Request $request, User $user)
+{
+    // Only active influencers can have public review pages
+    abort_if($user->type !== 'influencer' || !$user->is_active, 404);
 
-        $paginator = $this->reviews->listByUser($user, $perPage);
+    $perPage = min((int) $request->get('per_page', 10), 50);
 
-        return ReviewResource::collection($paginator);
-    }
+    $paginator = $this->reviews->listByUser($user, $perPage);
+
+    return ReviewResource::collection($paginator);
+}
 
     /** GET /products/{product}/review-state  (للزرار Rate & review) */
     public function state(Request $request, Product $product)
