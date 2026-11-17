@@ -22,6 +22,7 @@ class OrderController extends Controller
     protected CartService $cartService,
 ) {}
 
+
        public function store(Request $request)
     {
         $data = $request->validate([
@@ -31,7 +32,7 @@ class OrderController extends Controller
             'items.*.product_id' => 'required|integer|exists:products,id',
             'items.*.variant_id' => 'nullable|integer|exists:product_variants,id',  // ← ضيف السطر ده
             'items.*.quantity'   => 'required|integer|min:1|max:100',
-  
+        'shipping_method'    => 'nullable|string|in:' . implode(',', array_keys(config('store.shipping.methods', []))),  
             'customer_name'      => 'required|string|max:255',
             'customer_phone'     => 'required|string|max:30',
             'customer_email'     => 'nullable|email',
