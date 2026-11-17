@@ -14,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 use App\Models\PasswordResetOtp;
 use App\Notifications\PasswordResetOtpNotification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class AuthController extends Controller
 {
@@ -262,12 +263,23 @@ public function me(Request $request)
         return response()->json(['message' => 'تم تغيير كلمة المرور، سجّل الدخول بالباسورد الجديد']);
     }
   /** POST /api/auth/forgot-password-otp */
+/** POST /api/auth/forgot-password-otp */
 public function forgotPasswordOtp(Request $request)
 {
     $data = $request->validate(['email' => 'required|email']);
 
-    // رد موحد دايمًا (ما نكشفش وجود البريد)
     $message = 'لو البريد مسجل لدينا سيصلك كود إعادة تعيين كلمة المرور';
+
+    // Per-email rate limit (atomic, survives OTP record deletion)
+    $rateKey = 'otp_request:' . hash('sha256', strtolower(trim($data['email'])));
+    Cache::add($rateKey, 0, now()->addMinutes(5));
+    $attempts = (int) Cache::increment($rateKey);
+
+    if ($attempts > 3) {
+        return response()->json([
+            'message' => 'حاول مرة أخرى بعد قليل',
+        ], 429);
+    }
 
     $user = User::where('email', $data['email'])->where('is_active', true)->first();
 
@@ -275,21 +287,9 @@ public function forgotPasswordOtp(Request $request)
         return response()->json(['message' => $message]);
     }
 
-    // حماية إضافية: max 3 requests لنفس البريد في 5 دقائق
-    $recentCount = PasswordResetOtp::where('email', $data['email'])
-        ->where('created_at', '>=', now()->subMinutes(5))
-        ->count();
-
-    if ($recentCount >= 3) {
-        return response()->json([
-            'message' => 'حاول مرة أخرى بعد قليل',
-        ], 429);
-    }
-
-    // إبطال أي OTP قديم لنفس البريد
+    // Invalidate previous OTP record only — does NOT reset rate-limit counter
     PasswordResetOtp::where('email', $data['email'])->delete();
 
-    // OTP من 4 أرقام (str_pad يضمن 4 خانات حتى مع 0..999)
     $otp = str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
 
     PasswordResetOtp::create([
@@ -302,7 +302,7 @@ public function forgotPasswordOtp(Request $request)
     try {
         $user->notify(new PasswordResetOtpNotification($otp, 10));
     } catch (\Throwable $e) {
-        report($e); // لا نكشف للمستخدم
+        report($e);
     }
 
     return response()->json(['message' => $message]);
@@ -316,9 +316,23 @@ public function verifyOtp(Request $request)
         'otp'   => 'required|string|size:4',
     ]);
 
+    // Per-email verify attempt tracking (survives OTP record deletion)
+    $verifyKey = 'otp_verify:' . hash('sha256', strtolower(trim($data['email'])));
+    $attempts  = (int) Cache::get($verifyKey, 0);
+
+    if ($attempts >= 5) {
+        // Match existing behavior: clear pending OTP records once limit is hit
+        PasswordResetOtp::where('email', $data['email'])->delete();
+        return response()->json([
+            'message' => 'تجاوزت عدد المحاولات، اطلب كود جديد',
+            'errors'  => ['otp' => ['تجاوزت المحاولات']],
+        ], 422);
+    }
+
     $record = PasswordResetOtp::where('email', $data['email'])->latest('id')->first();
 
     if (!$record) {
+        $this->incrementVerifyAttempts($verifyKey);
         return response()->json([
             'message' => 'كود غير صالح أو منتهي',
             'errors'  => ['otp' => ['كود غير صالح أو منتهي']],
@@ -333,7 +347,6 @@ public function verifyOtp(Request $request)
         ], 422);
     }
 
-    // max 5 محاولات
     if ($record->attempts >= 5) {
         $record->delete();
         return response()->json([
@@ -344,13 +357,16 @@ public function verifyOtp(Request $request)
 
     if (!Hash::check($data['otp'], $record->otp_hash)) {
         $record->increment('attempts');
+        $this->incrementVerifyAttempts($verifyKey);
         return response()->json([
             'message' => 'الكود غير صحيح',
             'errors'  => ['otp' => ['الكود غير صحيح']],
         ], 422);
     }
 
-    // نجاح — إصدار reset_token (64 hex = 32 byte entropy)
+    // Success — clear per-email attempts counter
+    Cache::forget($verifyKey);
+
     $resetToken = bin2hex(random_bytes(32));
 
     $record->update([
@@ -364,6 +380,13 @@ public function verifyOtp(Request $request)
         'reset_token' => $resetToken,
         'expires_at'  => $record->reset_token_expires_at->toIso8601String(),
     ]);
+}
+
+/** يزود عداد محاولات التحقق لكل بريد (مستقل عن سجل الـ OTP) */
+protected function incrementVerifyAttempts(string $key): void
+{
+    Cache::add($key, 0, now()->addMinutes(10));
+    Cache::increment($key);
 }
 
 /** POST /api/auth/reset-password-otp */
