@@ -8,7 +8,7 @@ class FcmService
 {
     /**
      * يبعت push notification لمجموعة tokens.
-     * لو FCM مش مظبوط، بيرجع skipped=true من غير ما يرمي exception.
+     * لو FCM مش مظبوط، بيرجع skipped=true مع warning log (مش صامت).
      *
      * @param array<string> $tokens
      * @param array{title:string, body:string, data?:array} $payload
@@ -19,12 +19,15 @@ class FcmService
         $tokens = array_values(array_filter($tokens));
 
         if (empty($tokens)) {
-            return ['success' => 0, 'failed' => 0, 'skipped' => true];
+            return ['success' => 0, 'failed' => 0, 'skipped' => true, 'error' => 'no_tokens'];
         }
 
-        if (!$this->isConfigured()) {
-            Log::info('FCM skipped: not configured', [
-                'token_count' => count($tokens),
+        $status = $this->configStatus();
+
+        if (!$status['configured']) {
+            Log::warning('FCM skipped: not configured', [
+                'reason'       => $status['reason'],
+                'token_count'  => count($tokens),
                 'payload_type' => $payload['data']['type'] ?? null,
             ]);
             return ['success' => 0, 'failed' => 0, 'skipped' => true, 'error' => 'not_configured'];
@@ -42,9 +45,15 @@ class FcmService
                 )
                 ->withData($this->stringifyData($payload['data'] ?? []));
 
-            $report = $messaging->sendMulticast($message, $tokens);
+            // v6 uses sendMulticast(); v7+ recommends sendEachForMulticast()
+            if (method_exists($messaging, 'sendMulticast')) {
+                $report = $messaging->sendMulticast($message, $tokens);
+            } elseif (method_exists($messaging, 'sendEachForMulticast')) {
+                $report = $messaging->sendEachForMulticast($message, $tokens);
+            } else {
+                throw new \RuntimeException('Kreait Messaging: no compatible multicast method found');
+            }
 
-            // حذف tokens المنتهية
             $this->pruneInvalidTokens($report);
 
             return [
@@ -54,22 +63,38 @@ class FcmService
             ];
         } catch (\Throwable $e) {
             Log::error('FCM send failed', [
-                'error' => $e->getMessage(),
+                'error'       => $e->getMessage(),
                 'token_count' => count($tokens),
             ]);
             return ['success' => 0, 'failed' => count($tokens), 'skipped' => false, 'error' => $e->getMessage()];
         }
     }
 
-    public function isConfigured(): bool
+    /**
+     * @return array{configured:bool, reason:string}
+     */
+    public function configStatus(): array
     {
         if (!class_exists(\Kreait\Firebase\Contract\Messaging::class)) {
-            return false;
+            return ['configured' => false, 'reason' => 'package_not_installed'];
         }
 
         $path = $this->credentialsPath();
 
-        return $path !== null && file_exists($path);
+        if ($path === null) {
+            return ['configured' => false, 'reason' => 'credentials_not_set'];
+        }
+
+        if (!file_exists($path)) {
+            return ['configured' => false, 'reason' => 'credentials_file_missing'];
+        }
+
+        return ['configured' => true, 'reason' => 'ok'];
+    }
+
+    public function isConfigured(): bool
+    {
+        return $this->configStatus()['configured'];
     }
 
     protected function credentialsPath(): ?string
