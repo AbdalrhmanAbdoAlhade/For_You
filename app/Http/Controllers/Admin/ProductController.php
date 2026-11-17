@@ -29,16 +29,17 @@ class ProductController extends Controller
         ]);
 
         $products = Product::with('category')
+            ->withCount('variants')
             ->when($request->search, fn ($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->when($request->category_id, fn ($q) => $q->where('category_id', $request->category_id))
             ->when($request->is_active !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
             ->latest()
-            ->paginate(20);
+            ->paginate(10);
 
         return response()->json($products);
     }
 
-        public function store(Request $request)
+    public function store(Request $request)
     {
         $data = $request->validate([
             'category_id'          => 'required|exists:categories,id',
@@ -88,7 +89,6 @@ class ProductController extends Controller
 
             $product = Product::create($data);
         } catch (UniqueConstraintViolationException $e) {
-            // سباق على نفس الـ slug بين طلبين متزامنين.
             foreach ($uploaded as $path) {
                 $this->fileUploadService->delete($path);
             }
@@ -97,7 +97,6 @@ class ProductController extends Controller
                 'slug' => __('الرابط المختصر (slug) مستخدم بالفعل'),
             ]);
         } catch (\Throwable $e) {
-            // فشل حفظ المنتج لا يترك صورًا يتيمة على القرص.
             foreach ($uploaded as $path) {
                 $this->fileUploadService->delete($path);
             }
@@ -108,11 +107,20 @@ class ProductController extends Controller
         AuditLog::record('product.created', $product, ['name' => $product->name]);
         HomeController::flush();
 
-        return new ProductResource($product->load('category'));
+        return new ProductResource(
+            $product->load('category')->loadCount('variants')
+        );
     }
 
     public function update(Request $request, Product $product)
     {
+        // لو المنتج عنده variants، الـ stock بيتحسب من الـ variants — امنع التعديل اليدوي
+        if ($request->filled('stock') && $product->variants()->exists()) {
+            throw ValidationException::withMessages([
+                'stock' => __('المنتج عنده variants — عدّل مخزون الـ variant نفسه، الـ stock هنا محسوب تلقائياً'),
+            ]);
+        }
+
         $data = $request->validate([
             'category_id'          => 'sometimes|exists:categories,id',
             'brand_id'             => ['nullable', Rule::exists('brands', 'id')->whereNull('deleted_at')],
@@ -188,7 +196,6 @@ class ProductController extends Controller
                 'slug' => __('الرابط المختصر (slug) مستخدم بالفعل'),
             ]);
         } catch (\Throwable $e) {
-            // فشل التحديث: نحذف الصور الجديدة فقط ونبقي القديمة.
             foreach ($uploaded as $path) {
                 $this->fileUploadService->delete($path);
             }
@@ -204,15 +211,19 @@ class ProductController extends Controller
         AuditLog::record('product.updated', $product, ['name' => $product->name]);
         HomeController::flush();
 
-        return response()->json($product->load('category'));
+        return new ProductResource(
+            $product->fresh()->load(['category', 'variants'])->loadCount('variants')
+        );
     }
 
     public function show(Product $product)
     {
-        return response()->json($product->load('category', 'influencers'));
+        $product->load(['category', 'influencers', 'variants'])
+            ->loadCount('variants');
+
+        return new ProductResource($product);
     }
 
-   
     public function destroy(Product $product)
     {
         $product->delete();
@@ -224,7 +235,7 @@ class ProductController extends Controller
     }
 
     /**
-     * slug فريد مع تجاهل السجلات المحذوفة soft-delete (زي Category).
+     * slug فريد مع تجاهل السجلات المحذوفة soft-delete.
      */
     protected function uniqueSlug(string $name, ?int $ignoreId = null): string
     {

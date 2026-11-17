@@ -12,7 +12,6 @@ class ProductResource extends JsonResource
         $isStaff = $request->user()
             && in_array($request->user()->type, ['admin', 'employee'], true);
 
-        // البراند المعطّل مايظهرش للجمهور
         $brand = $this->brand;
         $showBrand = $brand && ($isStaff || $brand->is_active);
 
@@ -25,10 +24,16 @@ class ProductResource extends JsonResource
             'price'             => (float) $this->price,
             'discount_price'    => $this->has_discount ? (float) $this->effective_price : null,
             'final_price'       => (float) $this->final_price,
-            // المخزون والـ SKU للأدمن/الموظف فقط
             'stock'             => $this->when($isStaff, $this->stock),
             'sku'               => $this->when($isStaff, $this->sku),
-            // للجمهور: in_stock بس
+            'rating_avg'        => (float) $this->rating_avg,
+            'reviews_count'     => (int) $this->reviews_count,
+            'has_variants'      => (bool) (
+                $this->relationLoaded('variants')
+                    ? $this->variants->isNotEmpty()
+                    : ($this->variants_count ?? 0) > 0
+            ),
+            'variants'          => ProductVariantResource::collection($this->whenLoaded('variants')),
             'in_stock'          => $this->when(!$isStaff, $this->stock > 0),
             'images'            => $this->images ?? [],
             'is_featured'       => $this->is_featured,

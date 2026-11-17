@@ -8,15 +8,19 @@ use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Concerns\HandlesIdempotency;
 use App\Http\Resources\OrderResource;
+use App\Http\Resources\OrderStatusHistoryResource;
+use App\Services\CartService;
+use App\Http\Resources\CartResource;
 
 class OrderController extends Controller
 {    use HandlesIdempotency;
  
     
-    public function __construct(
-        protected OrderService $orderService,
-        protected PaymentService $paymentService
-    ) {}
+  public function __construct(
+    protected OrderService $orderService,
+    protected PaymentService $paymentService,
+    protected CartService $cartService,
+) {}
 
        public function store(Request $request)
     {
@@ -25,7 +29,9 @@ class OrderController extends Controller
             'payment_method'     => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
             'items'              => 'required|array|min:1',
             'items.*.product_id' => 'required|integer|exists:products,id',
+            'items.*.variant_id' => 'nullable|integer|exists:product_variants,id',  // ← ضيف السطر ده
             'items.*.quantity'   => 'required|integer|min:1|max:100',
+  
             'customer_name'      => 'required|string|max:255',
             'customer_phone'     => 'required|string|max:30',
             'customer_email'     => 'nullable|email',
@@ -47,23 +53,41 @@ class OrderController extends Controller
         }, required: true);
     }
  
-    public function myOrders(Request $request)
-    {
-        $orders = $request->user()
-            ->ordersAsCustomer()
-            ->with(['items', 'payment', 'shipping'])
-            ->latest()
-            ->paginate(10);
+ public function myOrders(Request $request)
+{
+    $data = $request->validate([
+        'scope' => 'nullable|in:all,active,history',
+    ]);
 
-        // نحافظ على شكل الـ paginator الحالي مع إخفاء بيانات البوابة والعمولة.
-        $orders->setCollection(
-            $orders->getCollection()->map(
-                fn ($order) => (new OrderResource($order))->resolve($request)
-            )
-        );
+    $scope = $data['scope'] ?? 'all';
 
-        return response()->json($orders);
+    $query = $request->user()
+        ->ordersAsCustomer()
+        ->with(['items', 'payment', 'shipping']);
+
+    // Active = الطلبات في طور التنفيذ
+    // History = delivered/cancelled/returned
+    // all = بدون فلتر (متغطية حالة غير معروفة مستقبلًا)
+    if ($scope === 'active') {
+        $query->whereIn('status', [
+            'new', 'confirmed', 'processing', 'ready_for_shipping', 'shipped',
+        ]);
+    } elseif ($scope === 'history') {
+        $query->whereIn('status', [
+            'delivered', 'cancelled', 'returned',
+        ]);
     }
+
+    $orders = $query->latest()->paginate(10);
+
+    $orders->setCollection(
+        $orders->getCollection()->map(
+            fn ($order) => (new OrderResource($order))->resolve($request)
+        )
+    );
+
+    return response()->json($orders);
+}
 
     public function show(Request $request, $id)
     {
@@ -74,6 +98,23 @@ class OrderController extends Controller
 
         return response()->json((new OrderResource($order))->resolve($request));
     }
+ 
+ 		/**
+       * Timeline تتبع الأوردر (للعميل صاحب الأوردر فقط).
+       */
+      public function tracking(Request $request, $id)
+      {
+          $order = $request->user()
+              ->ordersAsCustomer()
+              ->with([
+                  'statusHistories' => fn ($q) => $q
+                      ->chronological()
+                      ->with('changedBy:id,name,type'),
+              ])
+              ->findOrFail($id);
+
+          return OrderStatusHistoryResource::collection($order->statusHistories);
+      }
 
         public function cancel(Request $request, $id)
     {
@@ -89,6 +130,54 @@ class OrderController extends Controller
         ]);
     }
 
+ /** POST /api/orders/{id}/buy-again */
+public function buyAgain(Request $request, $id)
+{
+    $order = $request->user()
+        ->ordersAsCustomer()
+        ->with('items')
+        ->findOrFail($id);
+
+    if ($order->items->isEmpty()) {
+        return response()->json(['message' => 'الطلب لا يحتوي على منتجات'], 422);
+    }
+
+    $addedCount = 0;
+    $skipped = [];
+
+    foreach ($order->items as $item) {
+        try {
+            $this->cartService->addItem(
+                $request->user(),
+                (int) $item->product_id,
+                (int) $item->quantity,
+                $item->variant_id ? (int) $item->variant_id : null
+            );
+            $addedCount++;
+        } catch (\DomainException $e) {
+            $skipped[] = [
+                'order_item_id' => $item->id,
+                'product_id'    => $item->product_id,
+                'product_name'  => $item->product_name,
+                'variant_id'    => $item->variant_id,
+                'reason'        => $e->getMessage(),
+            ];
+        }
+    }
+
+    $cart = $this->cartService->getCart($request->user());
+
+    return response()->json([
+        'message'       => $addedCount > 0
+            ? 'تمت إضافة المنتجات المتاحة إلى السلة'
+            : 'لم تتم إضافة أي منتج',
+        'added_count'   => $addedCount,
+        'skipped_count' => count($skipped),
+        'skipped'       => $skipped,
+        'cart'          => new CartResource($cart),
+    ]);
+}
+ 
     /**
      * بدء/إعادة محاولة دفع الطلب عبر بوابة معينة.
      */

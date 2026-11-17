@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Influencer;
 
+use App\Http\Controllers\Api\HomeController; // <--- تمت الإضافة
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StoryResource;
 use App\Services\InfluencerStoryService;
@@ -42,6 +43,9 @@ class StoryController extends Controller
         $story = $this->stories->create($user, $request->file('image'), $data);
         $story->loadCount(['likers', 'viewers']);
 
+        // مسح كاش الصفحة الرئيسية لأن قصة جديدة أضيفت
+        HomeController::flush();
+
         return (new StoryResource($story))
             ->additional(['quota' => $this->stories->quota($user)])
             ->response()
@@ -60,6 +64,10 @@ class StoryController extends Controller
         $story = $this->stories->setActive($story, (bool) $data['is_active']);
         $story->loadCount(['likers', 'viewers']);
 
+        // ملاحظة: عادة لا نحتاج لمسح الكاش هنا إذا كانت القصة موجودة بالفعل وتغير حالتها فقط،
+        // ولكن إذا كنت تريد ضمان التحديث الفوري في الـ Home، يمكنك إضافتها هنا أيضاً.
+        // HomeController::flush(); 
+
         return new StoryResource($story);
     }
 
@@ -69,6 +77,9 @@ class StoryController extends Controller
         $story = $request->user()->stories()->findOrFail($id);
 
         $this->stories->delete($story);
+
+        // مسح كاش الصفحة الرئيسية لأن قصة حذفت
+        HomeController::flush();
 
         return response()->json([
             'message' => 'تم حذف القصة',

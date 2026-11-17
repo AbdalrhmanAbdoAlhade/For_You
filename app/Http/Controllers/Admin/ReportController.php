@@ -11,6 +11,7 @@ use App\Models\WithdrawalRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Models\Product;
 
 class ReportController extends Controller
 {
@@ -22,6 +23,46 @@ class ReportController extends Controller
     {
         return Order::SALE_STATUSES;
     }
+  		public function customers(Request $request)
+{
+    $timezone = config('app.timezone');
+    $monthStart = now($timezone)->startOfMonth();
+
+    // 1) عملاء جدد الشهر ده
+    $newThisMonth = User::customers()
+        ->where('created_at', '>=', $monthStart)
+        ->count();
+
+    // 2) عملاء عائدين (>= 2 أوردر delivered)
+    $returningBuyers = (int) DB::table('orders')
+        ->select('customer_id')
+        ->whereIn('status', $this->saleStatuses())
+        ->whereNull('deleted_at')
+        ->groupBy('customer_id')
+        ->havingRaw('COUNT(*) >= 2')
+        ->get()
+        ->count();
+
+    // 3) جايين من influencer link
+    $cameViaInfluencer = (int) DB::table('orders')
+        ->whereIn('status', $this->saleStatuses())
+        ->whereNull('deleted_at')
+        ->whereNotNull('influencer_id')
+        ->distinct()
+        ->count('customer_id');
+
+    // 4) متوسط قيمة الأوردر
+    $avgOrderValue = (float) (Order::whereIn('status', $this->saleStatuses())
+        ->whereNull('deleted_at')
+        ->avg('total') ?? 0);
+
+    return response()->json([
+        'new_this_month'      => (int) $newThisMonth,
+        'returning_buyers'    => $returningBuyers,
+        'came_via_influencer' => $cameViaInfluencer,
+        'avg_order_value'     => round($avgOrderValue, 2),
+    ]);
+}
 
     public function sales(Request $request)
     {
@@ -83,49 +124,115 @@ class ReportController extends Controller
         return response()->json($data);
     }
 
-    public function topProducts(Request $request)
-    {
-        $request->validate([
-            'from'  => 'nullable|date',
-            'to'    => 'nullable|date|after_or_equal:from',
-            'limit' => 'nullable|integer|min:1|max:100',
-        ]);
+   public function topProducts(Request $request)
+{
+    $request->validate([
+        'from'  => 'nullable|date',
+        'to'    => 'nullable|date|after_or_equal:from',
+        'limit' => 'nullable|integer|min:1|max:100',
+    ]);
 
-        $query = OrderItem::query()
-            ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->whereNull('orders.deleted_at')
-            ->whereIn('orders.status', $this->saleStatuses());
+    $timezone = config('app.timezone');
+    $from = $request->filled('from') ? Carbon::parse($request->from, $timezone)->startOfDay() : null;
+    $to   = $request->filled('to')   ? Carbon::parse($request->to, $timezone)->endOfDay()   : null;
 
-        $timezone = config('app.timezone');
+    $query = OrderItem::query()
+        ->join('orders', 'orders.id', '=', 'order_items.order_id')
+        ->whereNull('orders.deleted_at')
+        ->whereIn('orders.status', $this->saleStatuses());
 
-        if ($request->filled('from')) {
-            $query->where('orders.created_at', '>=', Carbon::parse($request->from, $timezone)->startOfDay());
-        }
+    if ($from) $query->where('orders.created_at', '>=', $from);
+    if ($to)   $query->where('orders.created_at', '<=', $to);
 
-        if ($request->filled('to')) {
-            $query->where('orders.created_at', '<=', Carbon::parse($request->to, $timezone)->endOfDay());
-        }
+    $rows = $query
+        ->select(
+            'order_items.product_id',
+            DB::raw('MAX(order_items.product_name) as name'),
+            DB::raw('SUM(order_items.quantity) as sold_quantity'),
+            DB::raw('SUM(order_items.total) as total_revenue'),
+            DB::raw('SUM(CASE WHEN order_items.commission_percentage IS NOT NULL THEN order_items.quantity ELSE 0 END) as inf_qty'),
+            DB::raw('SUM(CASE WHEN order_items.commission_percentage IS NOT NULL THEN order_items.total ELSE 0 END) as inf_revenue')
+        )
+        ->groupBy('order_items.product_id')
+        ->orderByDesc('sold_quantity')
+        ->limit((int) $request->get('limit', 20))
+        ->get();
 
-        $products = $query
-            ->select(
-                'order_items.product_id',
-                DB::raw('MAX(order_items.product_name) as name'),
-                DB::raw('SUM(order_items.quantity) as sold_quantity'),
-                DB::raw('SUM(order_items.total) as total_revenue')
-            )
-            ->groupBy('order_items.product_id')
-            ->orderByDesc('sold_quantity')
-            ->limit((int) $request->get('limit', 20))
-            ->get()
-            ->map(fn ($row) => [
-                'product_id'    => $row->product_id,
-                'name'          => $row->name,
-                'sold_quantity' => (int) $row->sold_quantity,
-                'total_revenue' => (float) $row->total_revenue,
-            ]);
+    // eager load للمنتجات + الأقسام
+    $productIds = $rows->pluck('product_id')->all();
+    $products = Product::with('category:id,name,name_en')
+        ->whereIn('id', $productIds)
+        ->get()
+        ->keyBy('id');
 
-        return response()->json($products);
-    }
+    return response()->json($rows->map(function ($row) use ($products) {
+        $product = $products->get($row->product_id);
+        $category = $product?->category;
+
+        return [
+            'product_id'       => $row->product_id,
+            'name'             => $row->name,
+            'category'         => $category ? [
+                'id'   => $category->id,
+                'name' => $category->localized('name'),
+            ] : null,
+            'sold_quantity'    => (int) $row->sold_quantity,
+            'total_revenue'    => (float) $row->total_revenue,
+            'influencer_sales' => [
+                'sold_quantity' => (int) $row->inf_qty,
+                'total_revenue' => (float) $row->inf_revenue,
+            ],
+            'remaining_stock'  => (int) ($product?->stock ?? 0),
+        ];
+    }));
+}
+  
+  public function categories(Request $request)
+{
+    $request->validate([
+        'from'  => 'nullable|date',
+        'to'    => 'nullable|date|after_or_equal:from',
+        'limit' => 'nullable|integer|min:1|max:200',
+    ]);
+
+    $timezone = config('app.timezone');
+    $from = $request->filled('from') ? Carbon::parse($request->from, $timezone)->startOfDay() : now($timezone)->subDays(30);
+    $to   = $request->filled('to')   ? Carbon::parse($request->to, $timezone)->endOfDay()   : now($timezone);
+
+    $rows = DB::table('order_items')
+        ->join('orders', 'orders.id', '=', 'order_items.order_id')
+        ->join('products', 'products.id', '=', 'order_items.product_id')
+        ->join('categories', 'categories.id', '=', 'products.category_id')
+        ->whereNull('orders.deleted_at')
+        ->whereIn('orders.status', $this->saleStatuses())
+        ->whereBetween('orders.created_at', [$from, $to])
+        ->select(
+            'categories.id as category_id',
+            'categories.name as name',
+            'categories.name_en as name_en',
+            DB::raw('SUM(order_items.quantity) as sold_quantity'),
+            DB::raw('SUM(order_items.total) as total_revenue'),
+            DB::raw('SUM(CASE WHEN order_items.commission_percentage IS NOT NULL THEN order_items.quantity ELSE 0 END) as inf_qty'),
+            DB::raw('SUM(CASE WHEN order_items.commission_percentage IS NOT NULL THEN order_items.total ELSE 0 END) as inf_revenue'),
+            DB::raw('COUNT(DISTINCT products.id) as products_count')
+        )
+        ->groupBy('categories.id', 'categories.name', 'categories.name_en')
+        ->orderByDesc('total_revenue')
+        ->limit((int) $request->get('limit', 100))
+        ->get();
+
+    $isEn = app()->getLocale() === 'en';
+
+    return response()->json($rows->map(fn ($r) => [
+        'category_id'              => (int) $r->category_id,
+        'category_name'            => $isEn && $r->name_en ? $r->name_en : $r->name,
+        'sold_quantity'            => (int) $r->sold_quantity,
+        'total_revenue'            => (float) $r->total_revenue,
+        'influencer_sold_quantity' => (int) $r->inf_qty,
+        'influencer_revenue'       => (float) $r->inf_revenue,
+        'products_count'           => (int) $r->products_count,
+    ]));
+}
 
     public function overview()
     {

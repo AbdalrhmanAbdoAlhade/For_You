@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
 use App\Models\AuditLog;
+use App\Http\Resources\OrderStatusHistoryResource;
+
 
 class OrderController extends Controller
 {
@@ -46,8 +48,10 @@ class OrderController extends Controller
            public function updateStatus(Request $request, Order $order)
     {
         $data = $request->validate([
-            'status' => 'required|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
-        ]);
+    'status'        => 'required|in:new,confirmed,processing,ready_for_shipping,shipped,delivered,cancelled,returned',
+    'note'          => 'nullable|string|max:500',
+    'internal_note' => 'nullable|string|max:2000',
+]);
 
         $user = $request->user();
 
@@ -63,7 +67,12 @@ class OrderController extends Controller
         $from = $order->status;
 
         try {
-            $order = $this->orderService->updateStatus($order, $data['status']);
+            $order = $this->orderService->updateStatus(
+    $order,
+    $data['status'],
+    $data['note'] ?? null,
+    $data['internal_note'] ?? null,
+);
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -75,4 +84,18 @@ class OrderController extends Controller
             'order'   => $order->load('payment', 'shipping'),
         ]);
     }
+  
+  /**
+ * Timeline تتبع الأوردر (للأدمن — بيشمل internal_note).
+ */
+public function tracking(Order $order)
+{
+    $order->load([
+        'statusHistories' => fn ($q) => $q
+            ->chronological()
+            ->with('changedBy:id,name,type'),
+    ]);
+
+    return OrderStatusHistoryResource::collection($order->statusHistories);
+}
 }

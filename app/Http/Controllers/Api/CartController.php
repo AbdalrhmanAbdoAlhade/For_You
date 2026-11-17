@@ -19,25 +19,27 @@ class CartController extends Controller
         return new CartResource($cart);
     }
 
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'product_id' => 'required|integer|exists:products,id',
-            'quantity'   => 'required|integer|min:1|max:' . CartService::MAX_QUANTITY,
-        ]);
+   public function store(Request $request)
+{
+    $data = $request->validate([
+        'product_id' => 'required|integer|exists:products,id',
+        'variant_id' => 'nullable|integer|exists:product_variants,id',
+        'quantity'   => 'required|integer|min:1|max:' . CartService::MAX_QUANTITY,
+    ]);
 
-        try {
-            $cart = $this->cartService->addItem(
-                $request->user(),
-                $data['product_id'],
-                $data['quantity']
-            );
-        } catch (\DomainException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
-        return (new CartResource($cart))->response()->setStatusCode(201);
+    try {
+        $cart = $this->cartService->addItem(
+            $request->user(),
+            $data['product_id'],
+            $data['quantity'],
+            $data['variant_id'] ?? null
+        );
+    } catch (\DomainException $e) {
+        return response()->json(['message' => $e->getMessage()], 422);
     }
+
+    return (new CartResource($cart))->response()->setStatusCode(201);
+}
 
     public function update(Request $request, $itemId)
     {

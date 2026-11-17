@@ -5,42 +5,38 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
 use App\Http\Resources\ProductResource;
+use App\Http\Resources\StoryRailResource;
 use App\Models\Banner;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\User;
+use App\Services\InfluencerStoryService;
+use App\Services\RecommendationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 
 class HomeController extends Controller
 {
-    /** بادئة مفتاح كاش الصفحة الرئيسية (بيضاف لها اللغة). */
     public const CACHE_KEY = 'api.home.payload';
-
-    /** اللغات المدعومة (لازم تطابق SetLocale). */
     protected const LOCALES = ['ar', 'en'];
-
-    /** مدة الكاش بالثواني (5 دقائق). */
     protected const CACHE_TTL = 300;
+    protected const TRENDING_LIMIT = 12;
 
-    /** مفتاح الكاش للغة معينة. */
     protected static function cacheKey(string $locale): string
     {
         return self::CACHE_KEY . ':' . $locale;
     }
 
-    /** يمسح كاش الصفحة الرئيسية لكل اللغات. */
     public static function flush(): void
     {
         foreach (self::LOCALES as $locale) {
             Cache::forget(self::cacheKey($locale));
         }
-
-        // المفتاح القديم (قبل فصل اللغات) لو كان لسه متخزن.
         Cache::forget(self::CACHE_KEY);
     }
 
-    public function index()
+    public function index(): JsonResponse
     {
-        // العناوين والأسماء بتتغير حسب Accept-Language، فالكاش لازم يكون لكل لغة.
         $locale = app()->getLocale();
 
         $payload = Cache::remember(
@@ -86,7 +82,40 @@ class HomeController extends Controller
                     ->take(12)
                     ->get()
             )->resolve(),
+
+            // جديد: rail القصص (نفس منطق StoryController::discover — للزائر)
+            'stories' => $this->storiesRail(),
+
+            // جديد: منتجات trending (global — مش personalized لضمان cache صح)
+            'trending' => $this->trendingProducts(),
         ];
+    }
+
+    /** Rails القصص النشطة (discover logic للزائر — global) */
+    protected function storiesRail(): array
+    {
+        try {
+            $stories = app(InfluencerStoryService::class)->discoverRail(null);
+            return StoryRailResource::collection($stories)->resolve();
+        } catch (\Throwable $e) {
+            report($e);
+            return [];
+        }
+    }
+
+    /** trending products (global, مش user-based) */
+    protected function trendingProducts(): array
+    {
+        try {
+            $result = app(RecommendationService::class)->trendingFor(null, self::TRENDING_LIMIT);
+            return [
+                'products'       => ProductResource::collection($result['products'])->resolve(),
+                'based_on_likes' => (bool) ($result['based_on_likes'] ?? false),
+            ];
+        } catch (\Throwable $e) {
+            report($e);
+            return ['products' => [], 'based_on_likes' => false];
+        }
     }
 
     public function offers()
@@ -106,7 +135,6 @@ class HomeController extends Controller
 
     protected function offersQuery()
     {
-        // الأكبر خصماً الأول
         return $this->base()->onSale()->orderByRaw('(price - discount_price) / price DESC');
     }
 }

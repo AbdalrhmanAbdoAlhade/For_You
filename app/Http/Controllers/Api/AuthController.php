@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Models\PasswordResetOtp;
+use App\Notifications\PasswordResetOtpNotification;
+use Illuminate\Support\Facades\DB;
 
 class AuthController extends Controller
 {
@@ -72,13 +75,44 @@ public function register(Request $request)
     ], 201);
 }
 
+  /** PATCH /api/auth/language */
+public function updateLanguage(Request $request)
+{
+    $data = $request->validate([
+        'language' => 'required|string|in:ar,en',
+    ]);
+
+    $request->user()->update(['language' => $data['language']]);
+
+    return response()->json([
+        'message'       => __('تم تحديث اللغة'),
+        'language_pref' => $request->user()->language,
+    ]);
+}
+  
 public function me(Request $request)
 {
-    return response()->json(
-        $this->formatUserWithPermissions($request->user())
-    );
-}
+    $user = $request->user();
 
+    // withCount لتجنب N+1 (3 count queries بدل 3 + collection load)
+    $user->loadCount([
+        'ordersAsCustomer',
+        'likedProducts',
+        'following',
+    ]);
+
+    $base = $this->formatUserWithPermissions($user);
+
+    // إضافات بسيطة فوق الـ structure الموجودة (flat، بدون data wrapper)
+    $base['stats'] = [
+        'orders_count'    => (int) ($user->orders_as_customer_count ?? 0),
+        'wishlist_count'  => (int) ($user->liked_products_count   ?? 0),
+        'following_count' => (int) ($user->following_count        ?? 0),
+    ];
+    $base['language_pref'] = $user->language ?? 'ar';
+
+    return response()->json($base);
+}
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
@@ -227,6 +261,164 @@ public function me(Request $request)
 
         return response()->json(['message' => 'تم تغيير كلمة المرور، سجّل الدخول بالباسورد الجديد']);
     }
+  /** POST /api/auth/forgot-password-otp */
+public function forgotPasswordOtp(Request $request)
+{
+    $data = $request->validate(['email' => 'required|email']);
+
+    // رد موحد دايمًا (ما نكشفش وجود البريد)
+    $message = 'لو البريد مسجل لدينا سيصلك كود إعادة تعيين كلمة المرور';
+
+    $user = User::where('email', $data['email'])->where('is_active', true)->first();
+
+    if (!$user) {
+        return response()->json(['message' => $message]);
+    }
+
+    // حماية إضافية: max 3 requests لنفس البريد في 5 دقائق
+    $recentCount = PasswordResetOtp::where('email', $data['email'])
+        ->where('created_at', '>=', now()->subMinutes(5))
+        ->count();
+
+    if ($recentCount >= 3) {
+        return response()->json([
+            'message' => 'حاول مرة أخرى بعد قليل',
+        ], 429);
+    }
+
+    // إبطال أي OTP قديم لنفس البريد
+    PasswordResetOtp::where('email', $data['email'])->delete();
+
+    // OTP من 4 أرقام (str_pad يضمن 4 خانات حتى مع 0..999)
+    $otp = str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+
+    PasswordResetOtp::create([
+        'email'      => $data['email'],
+        'otp_hash'   => Hash::make($otp),
+        'expires_at' => now()->addMinutes(10),
+        'attempts'   => 0,
+    ]);
+
+    try {
+        $user->notify(new PasswordResetOtpNotification($otp, 10));
+    } catch (\Throwable $e) {
+        report($e); // لا نكشف للمستخدم
+    }
+
+    return response()->json(['message' => $message]);
+}
+
+/** POST /api/auth/verify-otp */
+public function verifyOtp(Request $request)
+{
+    $data = $request->validate([
+        'email' => 'required|email',
+        'otp'   => 'required|string|size:4',
+    ]);
+
+    $record = PasswordResetOtp::where('email', $data['email'])->latest('id')->first();
+
+    if (!$record) {
+        return response()->json([
+            'message' => 'كود غير صالح أو منتهي',
+            'errors'  => ['otp' => ['كود غير صالح أو منتهي']],
+        ], 422);
+    }
+
+    if ($record->isExpired()) {
+        $record->delete();
+        return response()->json([
+            'message' => 'انتهت صلاحية الكود، اطلب كود جديد',
+            'errors'  => ['otp' => ['انتهت الصلاحية']],
+        ], 422);
+    }
+
+    // max 5 محاولات
+    if ($record->attempts >= 5) {
+        $record->delete();
+        return response()->json([
+            'message' => 'تجاوزت عدد المحاولات، اطلب كود جديد',
+            'errors'  => ['otp' => ['تجاوزت المحاولات']],
+        ], 422);
+    }
+
+    if (!Hash::check($data['otp'], $record->otp_hash)) {
+        $record->increment('attempts');
+        return response()->json([
+            'message' => 'الكود غير صحيح',
+            'errors'  => ['otp' => ['الكود غير صحيح']],
+        ], 422);
+    }
+
+    // نجاح — إصدار reset_token (64 hex = 32 byte entropy)
+    $resetToken = bin2hex(random_bytes(32));
+
+    $record->update([
+        'verified_at'            => now(),
+        'reset_token_hash'       => Hash::make($resetToken),
+        'reset_token_expires_at' => now()->addMinutes(15),
+    ]);
+
+    return response()->json([
+        'message'     => 'تم التحقق، استخدم reset_token لإعادة تعيين كلمة المرور',
+        'reset_token' => $resetToken,
+        'expires_at'  => $record->reset_token_expires_at->toIso8601String(),
+    ]);
+}
+
+/** POST /api/auth/reset-password-otp */
+public function resetPasswordOtp(Request $request)
+{
+    $data = $request->validate([
+        'email'        => 'required|email',
+        'reset_token'  => 'required|string',
+        'password'     => 'required|string|min:8|confirmed',
+    ]);
+
+    $record = PasswordResetOtp::where('email', $data['email'])
+        ->whereNotNull('verified_at')
+        ->whereNotNull('reset_token_hash')
+        ->latest('id')
+        ->first();
+
+    if (!$record) {
+        throw ValidationException::withMessages([
+            'reset_token' => ['التوكن غير صالح'],
+        ]);
+    }
+
+    if ($record->isResetTokenExpired()) {
+        $record->delete();
+        throw ValidationException::withMessages([
+            'reset_token' => ['انتهت صلاحية التوكن، ابدأ من جديد'],
+        ]);
+    }
+
+    if (!Hash::check($data['reset_token'], $record->reset_token_hash)) {
+        throw ValidationException::withMessages([
+            'reset_token' => ['التوكن غير صالح'],
+        ]);
+    }
+
+    $user = User::where('email', $data['email'])->where('is_active', true)->first();
+
+    if (!$user) {
+        throw ValidationException::withMessages([
+            'email' => ['المستخدم غير متاح'],
+        ]);
+    }
+
+    DB::transaction(function () use ($user, $data, $record) {
+        $user->forceFill(['password' => $data['password']])->save();
+        $user->tokens()->delete();  // سياسة المشروع: إلغاء كل الجلسات
+        $record->delete();          // استهلاك التوكن + الـ OTP
+        event(new \Illuminate\Auth\Events\PasswordReset($user));
+    });
+
+    return response()->json([
+        'message' => 'تم تغيير كلمة المرور، سجّل الدخول بالباسورد الجديد',
+    ]);
+}
   
  protected function formatUserWithPermissions(User $user): array
 {

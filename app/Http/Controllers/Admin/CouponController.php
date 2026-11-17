@@ -125,6 +125,19 @@ class CouponController extends Controller
             ]);
         }
     }
+  public function broadcast(Coupon $coupon)
+{
+    if (!$coupon->is_active) {
+        return response()->json(['message' => __('الكوبون غير نشط')], 422);
+    }
+
+    \App\Jobs\NotifyCustomersOfNewOffer::dispatch($coupon->id)
+        ->onQueue('notifications');
+
+    return response()->json([
+        'message' => __('سيتم إرسال الإشعارات للعملاء'),
+    ]);
+}
 
     protected function normalizeCode(Request $request): void
     {

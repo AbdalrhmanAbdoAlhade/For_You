@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Api\HomeController; // <--- تمت الإضافة
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StoryResource;
 use App\Models\AuditLog;
@@ -48,6 +49,9 @@ class InfluencerStoryController extends Controller
             ['influencer_id' => $story->influencer_id]
         );
 
+        // مسح كاش الصفحة الرئيسية لأن القصص تظهر هناك
+        HomeController::flush();
+
         return response()->json([
             'message'   => $data['is_active'] ? 'تم إظهار القصة' : 'تم إخفاء القصة',
             'is_active' => (bool) $data['is_active'],
@@ -60,6 +64,9 @@ class InfluencerStoryController extends Controller
         AuditLog::record('story.deleted', $story, ['influencer_id' => $story->influencer_id]);
 
         $this->stories->delete($story);
+
+        // مسح كاش الصفحة الرئيسية لأن القصص تظهر هناك
+        HomeController::flush();
 
         return response()->json(['message' => 'تم حذف القصة']);
     }

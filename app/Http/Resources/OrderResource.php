@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\OrderStatusHistoryResource;
 
 class OrderResource extends JsonResource
 {
@@ -26,11 +27,15 @@ class OrderResource extends JsonResource
             'country'            => $this->country,
             'notes'              => $this->notes,
             'created_at'         => $this->created_at?->toDateTimeString(),
+          'shipping_method'    => $this->shipping_method,
+'shipping_cost'      => (float) $this->shipping_cost,
+'cod_fee'            => (float) $this->cod_fee,
 
             // العلاقات
             'customer'           => new UserResource($this->whenLoaded('customer')),
             'influencer'         => new UserResource($this->whenLoaded('influencer')),
             'items'              => OrderItemResource::collection($this->whenLoaded('items')),
+          'status_history' => OrderStatusHistoryResource::collection($this->whenLoaded('statusHistories')),
             'payment'            => new PaymentResource($this->whenLoaded('payment')),
             'shipping'           => new ShippingResource($this->whenLoaded('shipping')),
             'commissions'        => CommissionResource::collection($this->whenLoaded('commissions')),

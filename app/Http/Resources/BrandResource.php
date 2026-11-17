@@ -18,6 +18,8 @@ class BrandResource extends JsonResource
             'sort_order'     => $this->sort_order,
             'is_active'      => $this->is_active,
             'products_count' => $this->whenCounted('products'),
+          'rating_avg'    => (float) $this->rating_avg,
+'reviews_count' => (int) $this->reviews_count,
         ];
     }
 }

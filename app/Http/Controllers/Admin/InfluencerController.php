@@ -10,6 +10,9 @@ use App\Services\PromotionalLinkService;
 use App\Services\WalletService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Models\InfluencerCommission;
+use App\Models\Order;
+use Illuminate\Support\Facades\DB;
 
 class InfluencerController extends Controller
 {
@@ -18,29 +21,75 @@ class InfluencerController extends Controller
         protected WalletService $walletService
     ) {}
 
-    public function index(Request $request)
-    {
-        $request->validate([
-            'search'    => 'nullable|string|max:100',
-            'is_active' => 'nullable|boolean',
+  public function index(Request $request)
+{
+    $request->validate([
+        'search'    => 'nullable|string|max:100',
+        'is_active' => 'nullable|boolean',
+    ]);
+
+    $since30d = now()->subDays(30);
+
+    $influencers = User::influencers()
+        ->with('wallet')
+        ->addSelect([
+            'sales_links_30d_orders' => Order::selectRaw('COUNT(*)')
+                ->whereColumn('influencer_id', 'users.id')
+                ->whereIn('status', Order::SALE_STATUSES)
+                ->whereNull('deleted_at')
+                ->where('created_at', '>=', $since30d),
+
+            'sales_links_30d_revenue' => Order::selectRaw('COALESCE(SUM(total), 0)')
+                ->whereColumn('influencer_id', 'users.id')
+                ->whereIn('status', Order::SALE_STATUSES)
+                ->whereNull('deleted_at')
+                ->where('created_at', '>=', $since30d),
+
+            'commission_earned_total' => InfluencerCommission::selectRaw('COALESCE(SUM(commission_amount), 0)')
+                ->whereColumn('influencer_id', 'users.id')
+                ->whereIn('status', InfluencerCommission::EARNED_STATUSES),
+
+            'commission_pending_total' => InfluencerCommission::selectRaw('COALESCE(SUM(commission_amount), 0)')
+                ->whereColumn('influencer_id', 'users.id')
+                ->where('status', 'pending'),
+
+            'avg_commission_rate' => DB::table('influencer_product')
+                ->selectRaw('COALESCE(AVG(commission_percentage), 0)')
+                ->whereColumn('influencer_id', 'users.id')
+                ->where('is_active', true)
+                ->whereNotNull('commission_percentage'),
+        ])
+        ->when($request->search, function ($q) use ($request) {
+            $q->where(function ($q) use ($request) {
+                $q->where('name', 'like', "%{$request->search}%")
+                  ->orWhere('email', 'like', "%{$request->search}%")
+                  ->orWhere('phone', 'like', "%{$request->search}%");
+            });
+        })
+        ->when($request->is_active !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
+        ->latest()
+        ->paginate(20);
+
+    $influencers->getCollection()->transform(function ($inf) {
+        $inf->setAttribute('sales_through_links_30d', [
+            'orders_count' => (int) ($inf->sales_links_30d_orders ?? 0),
+            'revenue'      => (float) ($inf->sales_links_30d_revenue ?? 0),
+        ]);
+        $inf->setAttribute('commission_earned', (float) ($inf->commission_earned_total ?? 0));
+        $inf->setAttribute('commission_pending', (float) ($inf->commission_pending_total ?? 0));
+        $inf->setAttribute('wallet_balance_owed', (float) ($inf->wallet?->balance ?? 0));
+        $inf->setAttribute('avg_commission_rate', round((float) ($inf->avg_commission_rate ?? 0), 2));
+
+        $inf->makeHidden([
+            'sales_links_30d_orders', 'sales_links_30d_revenue',
+            'commission_earned_total', 'commission_pending_total',
         ]);
 
-        $influencers = User::influencers()
-            ->with('wallet')
-            ->when($request->search, function ($q) use ($request) {
-                $q->where(function ($q) use ($request) {
-                    $q->where('name', 'like', "%{$request->search}%")
-                      ->orWhere('email', 'like', "%{$request->search}%")
-                      ->orWhere('phone', 'like', "%{$request->search}%");
-                });
-            })
-            ->when($request->is_active !== null, fn($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->latest()
-            ->paginate(20);
+        return $inf;
+    });
 
-        return response()->json($influencers);
-    }
-
+    return response()->json($influencers);
+}
     public function store(Request $request)
     {
         $data = $request->validate([

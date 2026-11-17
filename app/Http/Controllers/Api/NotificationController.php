@@ -4,21 +4,50 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\NotificationType;
 
 class NotificationController extends Controller
 {
-    public function index(Request $request)
-    {
-        $notifications = $request->user()
-            ->notifications()
-            ->paginate(20);
+   public function index(Request $request)
+{
+    $data = $request->validate([
+        'type' => 'nullable|string|max:100',
+        'tab'  => 'nullable|in:orders,creators,offers',
+    ]);
 
-        $notifications->getCollection()->transform(
-            fn ($notification) => $this->present($notification)
-        );
+    $query = $request->user()->notifications();
 
-        return response()->json($notifications);
+    // فلتر type (single أو comma-separated)
+    if (!empty($data['type'])) {
+        $types = array_filter(array_map('trim', explode(',', $data['type'])));
+        if (!empty($types)) {
+            $query->where(function ($q) use ($types) {
+                foreach ($types as $type) {
+                    $q->orWhere('data->type', $type);
+                }
+            });
+        }
     }
+    // فلتر tab (مجموعة types)
+    elseif (!empty($data['tab'])) {
+        $types = \App\Support\NotificationType::forTab($data['tab']);
+        if (!empty($types)) {
+            $query->where(function ($q) use ($types) {
+                foreach ($types as $type) {
+                    $q->orWhere('data->type', $type);
+                }
+            });
+        }
+    }
+
+    $notifications = $query->paginate(20);
+
+    $notifications->getCollection()->transform(
+        fn ($notification) => $this->present($notification)
+    );
+
+    return response()->json($notifications);
+}
 
     public function unread(Request $request)
     {

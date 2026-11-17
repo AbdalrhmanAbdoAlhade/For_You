@@ -9,8 +9,6 @@ class OrderItemResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        // لو المنتج لسه موجود → نعرض الاسم حسب لغة الطلب الحالية
-        // لو اتحذف → نرجع الـ snapshot المحفوظ وقت الشراء
         $productName = $this->relationLoaded('product') && $this->product
             ? $this->product->localized('name')
             : $this->product_name;
@@ -18,6 +16,14 @@ class OrderItemResource extends JsonResource
         return [
             'id'             => $this->id,
             'product_id'     => $this->product_id,
+            'variant_id'     => $this->variant_id,
+            'variant'        => [
+                'id'    => $this->variant_id,
+                'size'  => $this->variant_size,
+                'color' => $this->variant_color,
+                'sku'   => $this->variant_sku,
+                'label' => $this->variant_label,
+            ],
             'product_name'   => $productName,
             'price'          => (float) $this->price,
             'discount_price' => $this->discount_price ? (float) $this->discount_price : null,
