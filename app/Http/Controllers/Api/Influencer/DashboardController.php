@@ -19,7 +19,7 @@ class DashboardController extends Controller
         $request->validate([
             'from'     => 'nullable|date',
             'to'       => 'nullable|date|after_or_equal:from',
-            'group_by' => 'nullable|in:day,month',
+            'group_by' => 'nullable|in:day,week,month',  
         ]);
 
         $influencer = $request->user();
@@ -110,11 +110,15 @@ class DashboardController extends Controller
         ]);
     }
 
-    /**
-     * مبيعات يومية/شهرية (delivered فقط، المؤثر الحالي)
-     * @return array<int, array{date:string, orders_count:int, sales_total:float}>
-     */
-  protected function buildSalesChart($influencer, Request $request): array
+  /**
+ * مبيعات مجمعة حسب day/week/month.
+ * - orders_count + sales_total: من orders فقط (بدون JOIN) — يمنع التكرار
+ * - units_sold: من order_items JOIN orders — يمثل عدد الوحدات الفعلي
+ * - merge في PHP لضمان تسلسل زمني واحد
+ *
+ * @return array<int, array{date:string, orders_count:int, units_sold:int, sales_total:float}>
+ */
+protected function buildSalesChart($influencer, Request $request): array
 {
     $groupBy = $request->input('group_by', 'day');
 
@@ -128,28 +132,76 @@ class DashboardController extends Controller
 
     $driver = \DB::connection()->getDriverName();
 
-    if ($groupBy === 'month') {
-        $dateExpr = $driver === 'sqlite'
-            ? "strftime('%Y-%m', created_at)"
-            : "DATE_FORMAT(created_at, '%Y-%m')";
-    } else {
-        $dateExpr = 'DATE(created_at)'; // مدعوم في SQLite + MySQL
-    }
+    [$dateExprOrders, $dateExprItems] = $this->buildDateExpressions($driver, $groupBy);
 
-    return Order::where('influencer_id', $influencer->id)
+    // 1) Orders aggregate — بدون JOIN
+    $orderRows = Order::where('influencer_id', $influencer->id)
         ->whereIn('status', Order::SALE_STATUSES)
         ->whereNull('deleted_at')
         ->whereBetween('created_at', [$from, $to])
-        ->selectRaw("{$dateExpr} AS date, COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS sales_total")
-        ->groupByRaw($dateExpr)
-        ->orderBy('date')
+        ->selectRaw("{$dateExprOrders} AS date, COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS sales_total")
+        ->groupByRaw($dateExprOrders)
         ->get()
-        ->map(fn ($row) => [
-            'date'         => $row->date,
-            'orders_count' => (int) $row->orders_count,
-            'sales_total'  => (float) $row->sales_total,
-        ])
-        ->all();
+        ->keyBy('date');
+
+    // 2) Items aggregate — JOIN مع orders (للـ units_sold فقط)
+    $itemRows = \DB::table('order_items')
+        ->join('orders', 'orders.id', '=', 'order_items.order_id')
+        ->where('orders.influencer_id', $influencer->id)
+        ->whereIn('orders.status', Order::SALE_STATUSES)
+        ->whereNull('orders.deleted_at')
+        ->whereBetween('orders.created_at', [$from, $to])
+        ->selectRaw("{$dateExprItems} AS date, SUM(order_items.quantity) AS units_sold")
+        ->groupByRaw($dateExprItems)
+        ->get()
+        ->keyBy('date');
+
+    // 3) Merge — union of dates, sorted
+    $allDates = $orderRows->keys()
+        ->merge($itemRows->keys())
+        ->unique()
+        ->sort()
+        ->values();
+
+    return $allDates->map(function ($date) use ($orderRows, $itemRows) {
+        return [
+            'date'         => $date,
+            'orders_count' => (int) ($orderRows[$date]->orders_count ?? 0),
+            'units_sold'   => (int) ($itemRows[$date]->units_sold ?? 0),
+            'sales_total'  => (float) ($orderRows[$date]->sales_total ?? 0),
+        ];
+    })->all();
+}
+
+/**
+ * Date expressions per driver + group_by.
+ * - SQLite: strftime
+ * - MySQL: DATE / DATE_FORMAT
+ * يدعم الإصدار الحالي (day/month) + يضيف week.
+ *
+ * @return array{0:string, 1:string} [forOrders, forItems]
+ */
+protected function buildDateExpressions(string $driver, string $groupBy): array
+{
+    if ($groupBy === 'week') {
+        $orders = $driver === 'sqlite'
+            ? "strftime('%Y-W%W', orders.created_at)"
+            : "DATE_FORMAT(orders.created_at, '%x-W%v')";
+        return [$orders, $orders];
+    }
+
+    if ($groupBy === 'month') {
+        $orders = $driver === 'sqlite'
+            ? "strftime('%Y-%m', created_at)"
+            : "DATE_FORMAT(created_at, '%Y-%m')";
+        $items = $driver === 'sqlite'
+            ? "strftime('%Y-%m', orders.created_at)"
+            : "DATE_FORMAT(orders.created_at, '%Y-%m')";
+        return [$orders, $items];
+    }
+
+    // day (default)
+    return ['DATE(created_at)', 'DATE(orders.created_at)'];
 }
     /**
      * أكثر 10 منتجات من حيث الكمية المباعة عبر commissions المؤثر.
