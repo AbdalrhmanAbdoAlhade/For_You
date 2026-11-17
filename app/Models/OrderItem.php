@@ -19,9 +19,14 @@ protected $fillable = [
         'quantity',
         'total',
     'commission_percentage',
+    'variant_id',
+    'variant_size',
+    'variant_color',
+    'variant_sku',
     ];
 
     protected $casts = [
+      'variant_id' => 'integer',
      'commission_percentage' => 'float',
         'price' => 'decimal:2',
         'discount_price' => 'decimal:2',
@@ -32,9 +37,20 @@ protected $fillable = [
     {
         return $this->belongsTo(Order::class);
     }
-
+	
+  	public function variant(): BelongsTo
+{
+    return $this->belongsTo(ProductVariant::class, 'variant_id');
+}
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
+  
+  /** النص اللي بيتعرض للعميل: "M / Camel" أو null لو مفيش variants */
+public function getVariantLabelAttribute(): ?string
+{
+    $parts = array_filter([$this->variant_size, $this->variant_color], fn ($v) => $v !== null && $v !== '');
+    return $parts === [] ? null : implode(' / ', $parts);
+}
 }

@@ -15,10 +15,10 @@ class NewCommission extends Notification
         public ?string $availableAt = null
     ) {}
 
-    public function via(object $notifiable): array
-    {
-        return ['database'];
-    }
+   public function via(object $notifiable): array
+{
+    return ['database', \App\Notifications\Channels\FcmChannel::class];
+}
 
     public function toArray(object $notifiable): array
     {
@@ -51,6 +51,22 @@ class NewCommission extends Notification
             'available_at' => $this->availableAt,
             'status' => $isPending ? 'pending' : 'approved',
             'type' => 'new_commission',
+        ];
+    }
+  
+      public function toFcm(object $notifiable): array
+    {
+        $data = $this->toArray($notifiable);
+
+        return [
+            'title' => $data['title'],
+            'body'  => $data['message'],
+            'data'  => [
+                'type'      => \App\Support\NotificationType::NEW_COMMISSION,
+                'order_id'  => (string) $this->orderId,
+                'amount'    => (string) $this->totalAmount,
+                'status'    => $data['status'],
+            ],
         ];
     }
 }

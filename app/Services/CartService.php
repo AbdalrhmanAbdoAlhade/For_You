@@ -11,6 +11,10 @@ class CartService
 {
     public const MAX_QUANTITY = 100;
 
+    public function __construct(
+        protected VariantService $variants,
+    ) {}
+
     public function getOrCreateCart(User $user): Cart
     {
         return Cart::firstOrCreate(['user_id' => $user->id]);
@@ -19,33 +23,43 @@ class CartService
     /**
      * @throws \DomainException
      */
-    public function addItem(User $user, int $productId, int $quantity = 1): Cart
+    public function addItem(User $user, int $productId, int $quantity = 1, ?int $variantId = null): Cart
     {
-        return DB::transaction(function () use ($user, $productId, $quantity) {
+        return DB::transaction(function () use ($user, $productId, $quantity, $variantId) {
 
             $cart = $this->getOrCreateCart($user);
 
-            // lock على سلة العميل عشان طلبين متزامنين ميكسروش الـ unique
             Cart::whereKey($cart->id)->lockForUpdate()->first();
 
             $product = Product::find($productId);
-            $this->assertAvailable($product, $quantity);
+            $variant = $this->variants->resolveForProduct($product, $variantId);
 
-            $item = $cart->items()->where('product_id', $productId)->first();
+            $item = $cart->items()
+                ->where('product_id', $productId)
+                ->where('variant_id', $variantId)
+                ->first();
+
+            $newQuantity = $item ? $item->quantity + $quantity : $quantity;
+
+            if ($newQuantity > self::MAX_QUANTITY) {
+                throw new \DomainException(
+                    __('الحد الأقصى للكمية من المنتج الواحد هو :max', ['max' => self::MAX_QUANTITY])
+                );
+            }
+
+            $this->variants->assertStockAvailable($product, $variant, $newQuantity);
 
             if ($item) {
-                $newQuantity = $item->quantity + $quantity;
-                $this->assertAvailable($product, $newQuantity);
-
                 $item->update(['quantity' => $newQuantity]);
             } else {
                 $cart->items()->create([
                     'product_id' => $productId,
+                    'variant_id' => $variantId,
                     'quantity'   => $quantity,
                 ]);
             }
 
-            return $cart->load('items.product');
+            return $cart->load('items.product', 'items.variant');
         });
     }
 
@@ -54,17 +68,26 @@ class CartService
      */
     public function updateQuantity(User $user, int $itemId, int $quantity): Cart
     {
-        $cart = $this->getOrCreateCart($user);
-        $item = $cart->items()->with('product')->findOrFail($itemId);
+        return DB::transaction(function () use ($user, $itemId, $quantity) {
 
-        if ($quantity <= 0) {
-            $item->delete();
-        } else {
-            $this->assertAvailable($item->product, $quantity);
-            $item->update(['quantity' => $quantity]);
-        }
+            $cart = $this->getOrCreateCart($user);
+            $item = $cart->items()->with('product', 'variant')->findOrFail($itemId);
 
-        return $cart->load('items.product');
+            if ($quantity <= 0) {
+                $item->delete();
+            } else {
+                if ($quantity > self::MAX_QUANTITY) {
+                    throw new \DomainException(
+                        __('الحد الأقصى للكمية من المنتج الواحد هو :max', ['max' => self::MAX_QUANTITY])
+                    );
+                }
+
+                $this->variants->assertStockAvailable($item->product, $item->variant, $quantity);
+                $item->update(['quantity' => $quantity]);
+            }
+
+            return $cart->load('items.product', 'items.variant');
+        });
     }
 
     public function removeItem(User $user, int $itemId): Cart
@@ -72,7 +95,7 @@ class CartService
         $cart = $this->getOrCreateCart($user);
         $cart->items()->where('id', $itemId)->delete();
 
-        return $cart->load('items.product');
+        return $cart->load('items.product', 'items.variant');
     }
 
     public function clear(User $user): void
@@ -83,34 +106,6 @@ class CartService
 
     public function getCart(User $user): Cart
     {
-        return $this->getOrCreateCart($user)->load('items.product.category');
+        return $this->getOrCreateCart($user)->load('items.product.category', 'items.variant');
     }
-
-    /**
-     * @throws \DomainException
-     */
-
-protected function assertAvailable(?Product $product, int $quantity): void
-{
-    if (!$product || !$product->is_active) {
-        throw new \DomainException(__('هذا المنتج غير متاح حالياً'));
-    }
-
-    if ($quantity > self::MAX_QUANTITY) {
-        throw new \DomainException(
-            __('الحد الأقصى للكمية من المنتج الواحد هو :max', [
-                'max' => self::MAX_QUANTITY,
-            ])
-        );
-    }
-
-    if ($product->stock < $quantity) {
-        throw new \DomainException(
-            __('الكمية المطلوبة غير متوفرة في المخزون (المتاح: :stock)', [
-                'stock' => $product->stock,
-            ])
-        );
-    }
-}
-
 }

@@ -65,38 +65,48 @@ class InfluencerStoryService
 
         $imageUrl = $this->uploads->upload($image, 'stories');
 
-        try {
-            return DB::transaction(function () use ($influencer, $imageUrl, $data, $productIds) {
-                // قفل صف المؤثر: رفعتين في نفس اللحظة ميعدّوش الحد
-                User::query()->whereKey($influencer->id)->lockForUpdate()->first();
+      
+try {
+    $story = DB::transaction(function () use ($influencer, $imageUrl, $data, $productIds) {
+        // قفل صف المؤثر: رفعتين في نفس اللحظة ميعدّوش الحد
+        User::query()->whereKey($influencer->id)->lockForUpdate()->first();
 
-                $this->assertQuotaAvailable($influencer);
-                $this->assertProductsAllowed($influencer, $productIds);
+        $this->assertQuotaAvailable($influencer);
+        $this->assertProductsAllowed($influencer, $productIds);
 
-                $story = InfluencerStory::create([
-                    'influencer_id'    => $influencer->id,
-                    'image'            => $imageUrl,
-                    'caption'          => $data['caption'] ?? null,
-                    'label'            => $data['label'] ?? null,
-                    'duration_seconds' => max(1, (int) config('store.story_duration_seconds', 5)),
-                    'is_active'        => true,
-                ]);
+        $story = InfluencerStory::create([
+            'influencer_id'    => $influencer->id,
+            'image'            => $imageUrl,
+            'caption'          => $data['caption'] ?? null,
+            'label'            => $data['label'] ?? null,
+            'duration_seconds' => max(1, (int) config('store.story_duration_seconds', 5)),
+            'is_active'        => true,
+        ]);
 
-                foreach ($productIds as $index => $productId) {
-                    $story->storyProducts()->create([
-                        'product_id'          => $productId,
-                        'promotional_link_id' => $this->linkFor($influencer, $productId)->id,
-                        'sort_order'          => $index,
-                    ]);
-                }
-
-                return $story->load(self::EAGER);
-            });
-        } catch (\Throwable $e) {
-            $this->uploads->delete($imageUrl);
-
-            throw $e;
+        foreach ($productIds as $index => $productId) {
+            $story->storyProducts()->create([
+                'product_id'          => $productId,
+                'promotional_link_id' => $this->linkFor($influencer, $productId)->id,
+                'sort_order'          => $index,
+            ]);
         }
+
+        return $story->load(self::EAGER);
+    });
+
+    // إرسال إشعار للمتابعين بعد نجاح الـ Transaction
+    \App\Jobs\NotifyFollowersOfNewStory::dispatch($story->id)
+        ->onQueue('notifications');
+
+    return $story;
+
+} catch (\Throwable $e) {
+    $this->uploads->delete($imageUrl);
+
+    throw $e;
+}
+
+
     }
 
     /** إخفاء/إظهار قصة قبل انتهائها */

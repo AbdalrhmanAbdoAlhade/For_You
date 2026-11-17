@@ -12,6 +12,7 @@ use Laravel\Sanctum\HasApiTokens;
 use App\Models\Permission;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
+
 class User extends Authenticatable
 {
     use HasFactory, HasApiTokens, Notifiable, SoftDeletes;
@@ -26,6 +27,8 @@ class User extends Authenticatable
         'avatar',
         'provider',
         'provider_id',
+       'is_verified', 
+       'language',
     ];
 
     protected $hidden = [
@@ -34,6 +37,7 @@ class User extends Authenticatable
         'deleted_email',
         'deleted_phone',
         'provider_id',
+      'is_verified' => 'boolean', 
     ];
 
     protected $casts = [
@@ -216,6 +220,36 @@ class User extends Authenticatable
     public function notifications()
     {
         return $this->morphMany(\Illuminate\Notifications\DatabaseNotification::class, 'notifiable')->latest();
+    }
+  	/** أجهزة المستخدم (FCM tokens) */
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
+
+    /** FCM channel بيستخدم الدالة دي تلقائياً */
+    public function routeNotificationForFcm(): array
+    {
+        return $this->deviceTokens()->pluck('token')->all();
+    }
+/** بروفايل المؤثر (handle, bio, social_links) */
+public function influencerProfile(): HasOne
+{
+    return $this->hasOne(InfluencerProfile::class);
+}
+
+/** البراندات المرتبطة بالمؤثر (Many-to-Many) */
+public function brands(): BelongsToMany
+{
+    return $this->belongsToMany(Brand::class, 'brand_influencer', 'influencer_id', 'brand_id')
+        ->withPivot('is_active')
+        ->withTimestamps();
+}
+  
+      /** تقييمات المستخدم على المنتجات (tab Reviews في بروفايل الكريتور) */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class);
     }
 
     public function addresses(): HasMany

@@ -6,9 +6,11 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\PromotionalLink;
 use App\Models\User;
 use App\Models\Coupon;
+use App\Models\OrderStatusHistory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -17,9 +19,8 @@ use App\Notifications\NewCommission;
 
 class OrderService
 {
-    /** ترتيب الدورة الطبيعية للطلب */
     protected const FLOW = ['new', 'confirmed', 'processing', 'ready_for_shipping', 'shipped', 'delivered'];
-        /** الانتقالات المسموحة: من حالة لحالة واحدة تالية بالظبط (أو إلغاء/إرجاع) */
+
     protected const TRANSITIONS = [
         'new'                => ['confirmed', 'cancelled'],
         'confirmed'          => ['processing', 'cancelled'],
@@ -34,12 +35,10 @@ class OrderService
     public function __construct(
         protected InfluencerCommissionService $commissionService,
         protected PromotionalLinkService $linkService,
-        protected PricingService $pricingService
+        protected PricingService $pricingService,
+        protected VariantService $variantService,
     ) {}
 
-    /**
-     * عرض الأسعار قبل التنفيذ (مفيش حاجة بتتحفظ ولا مخزون بيتخصم).
-     */
     public function quote(User $customer, array $data): array
     {
         [$lines, $subtotal] = $this->buildLines($data['items'], false);
@@ -48,60 +47,85 @@ class OrderService
             $subtotal,
             $data['coupon_code'] ?? null,
             $data['city'] ?? null,
-            $customer
+            $customer,
+            false, // is_checkout = false
+            $data['shipping_method'] ?? null,
+            $data['payment_method'] ?? null
         );
 
         return [
             'items' => array_map(fn ($l) => [
-                'product_id' => $l['product']->id,
-                'name'       => $l['product']->localized('name'),
-                'quantity'   => $l['qty'],
-                'unit_price' => $l['unitPrice'],
-                'line_total' => $l['lineTotal'],
+                'product_id'    => $l['product']->id,
+                'variant_id'    => $l['variant']?->id,
+                'variant_label' => $l['variant']?->label,
+                'name'          => $l['product']->localized('name'),
+                'quantity'      => $l['qty'],
+                'unit_price'    => $l['unitPrice'],
+                'line_total'    => $l['lineTotal'],
             ], $lines),
-            'subtotal'      => $pricing['subtotal'],
-            'discount'      => $pricing['discount'],
-            'shipping_cost' => $pricing['shipping_cost'],
-            'total'         => $pricing['total'],
-            'coupon_code'   => $pricing['coupon']?->code,
+            'subtotal'          => $pricing['subtotal'],
+            'discount'          => $pricing['discount'],
+            'shipping_method'   => $pricing['shipping_method'],
+            'shipping_cost'     => $pricing['shipping_cost'],
+            'cod_fee'           => $pricing['cod_fee'],
+            'total'             => $pricing['total'],
+            'coupon_code'       => $pricing['coupon']?->code,
+            'available_methods' => $this->availableShippingMethods(),
         ];
     }
-public function isRefApplicable(User $customer, ?string $ref, array $items): bool
-{
-    if (!$ref) {
-        return false;
+
+    /**
+     * قائمة طرق الشحن المتاحة من config (مش hardcoded في controller)
+     */
+    protected function availableShippingMethods(): array
+    {
+        $methods = config('store.shipping.methods', []);
+        $out = [];
+        foreach ($methods as $key => $m) {
+            $out[] = [
+                'key'      => $key,
+                'label'    => $m['label'] ?? $key,
+                'cost'     => round((float) ($m['cost'] ?? 0), 2),
+                'eta_days' => (int) ($m['eta_days'] ?? 0),
+            ];
+        }
+        return $out;
     }
 
-    $ids = array_map(fn ($i) => (int) $i['product_id'], $items);
+    public function isRefApplicable(User $customer, ?string $ref, array $items): bool
+    {
+        if (!$ref) {
+            return false;
+        }
 
-    return $this->resolveLink($ref, $customer, $ids) !== null;
-}
+        $ids = array_map(fn ($i) => (int) $i['product_id'], $items);
+
+        return $this->resolveLink($ref, $customer, $ids) !== null;
+    }
 
     public function createOrder(User $customer, array $data): Order
     {
         return DB::transaction(function () use ($customer, $data) {
 
-            // 1. تجهيز المنتجات وحساب المجموع الفرعي
             [$lines, $subtotal] = $this->buildLines($data['items'], true);
 
-            // 2. حساب الأسعار والخصومات والشحن والكوبون
+            // تم إضافة shipping_method و payment_method هنا
             $pricing = $this->pricingService->calculate(
                 $subtotal,
                 $data['coupon_code'] ?? null,
                 $data['city'] ?? null,
                 $customer,
-                true
+                true, // is_checkout = true
+                $data['shipping_method'] ?? null,
+                $data['payment_method'] ?? null
             );
 
             $coupon = $pricing['coupon'];
 
-            // 3. استخراج المنتجات الموجودة في الطلب
-            $orderedProductIds = array_map(
-                fn ($line) => (int) $line['product']->id,
-                $lines
-            );
+            $orderedProductIds = array_values(array_unique(
+                array_map(fn ($line) => (int) $line['product']->id, $lines)
+            ));
 
-            // 4. تحديد رابط الإحالة (مع منع الإحالة الذاتية بالتليفون/الإيميل)
             $link = $this->resolveLink(
                 $data['ref'] ?? null,
                 $customer,
@@ -114,7 +138,6 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
 
             $linkProductId = $link?->product_id;
 
-            // 5. جلب نسب عمولة المؤثر الفعالة
             $commissionPercentages = collect();
 
             if ($link && $link->influencer_id) {
@@ -125,7 +148,7 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                     ->pluck('commission_percentage', 'product_id');
             }
 
-            // 6. إنشاء الطلب أولاً
+            // تم إضافة shipping_method, shipping_cost, cod_fee هنا
             $order = $this->createOrderRecord([
                 'customer_id'         => $customer->id,
                 'influencer_id'       => $link?->influencer_id,
@@ -135,7 +158,9 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                 'status'              => 'new',
                 'subtotal'            => $pricing['subtotal'],
                 'discount'            => $pricing['discount'],
+                'shipping_method'     => $pricing['shipping_method'],
                 'shipping_cost'       => $pricing['shipping_cost'],
+                'cod_fee'             => $pricing['cod_fee'],
                 'total'               => $pricing['total'],
                 'customer_name'       => $data['customer_name'],
                 'customer_phone'      => $data['customer_phone'],
@@ -146,14 +171,24 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                 'notes'               => $data['notes'] ?? null,
             ]);
 
-            // 7. إنشاء عناصر الطلب وتجميد عمولة كل منتج
+            // 1) تسجيل الحالة الأولى عند الإنشاء
+            OrderStatusHistory::create([
+                'order_id'        => $order->id,
+                'status'          => 'new',
+                'previous_status' => null,
+                'changed_by'      => $customer->id,
+                'note'            => null,
+            ]);
+          
+            $affectedProductIds = [];
+
             foreach ($lines as $line) {
                 $product = $line['product'];
+                $variant = $line['variant'];
 
                 $frozenPercentage = null;
 
                 if ($link && $link->influencer_id) {
-                    // إذا كان الرابط خاصاً بمنتج معين فلا عمولة على المنتجات الأخرى
                     $eligible = $linkProductId === null
                         || (int) $linkProductId === (int) $product->id;
 
@@ -164,48 +199,52 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                     }
                 }
 
+                $pricingLine = $product->resolvePrice($variant);
+
                 OrderItem::create([
                     'order_id'              => $order->id,
                     'product_id'            => $product->id,
+                    'variant_id'            => $variant?->id,
+                    'variant_size'          => $variant?->size,
+                    'variant_color'         => $variant?->color,
+                    'variant_sku'           => $variant?->sku,
                     'product_name'          => $product->localized('name'),
-                    'price'                 => $product->price,
-                    'discount_price'        => $product->has_discount
-                        ? $product->effective_price
-                        : null,
+                    'price'                 => $pricingLine['price'],
+                    'discount_price'        => $pricingLine['discount_price'],
                     'commission_percentage' => $frozenPercentage,
                     'quantity'              => $line['qty'],
                     'total'                 => $line['lineTotal'],
                 ]);
 
-                // خصم المخزون مرة واحدة فقط
-                $product->decrement('stock', $line['qty']);
+                if ($variant) {
+                    $variant->decrement('stock', $line['qty']);
+                    $affectedProductIds[$product->id] = true;
+                } else {
+                    $product->decrement('stock', $line['qty']);
+                }
             }
 
-            // 8. تحديث عدد استخدامات الكوبون
+            // مزامنة products.stock مع مجموع variants (للمنتجات اللي عندها variants)
+            foreach (array_keys($affectedProductIds) as $productId) {
+                $fresh = Product::find($productId);
+                if ($fresh) {
+                    $this->variantService->syncProductStock($fresh);
+                }
+            }
+
             $coupon?->increment('used_count');
 
-            // 9. إنشاء سجل الدفع بحالة pending
             Payment::create([
                 'order_id'       => $order->id,
-                'payment_method' => $data['payment_method']
-                    ?? config('store.default_payment_method'),
+                'payment_method' => $data['payment_method'] ?? config('store.default_payment_method'),
                 'amount'         => $pricing['total'],
                 'status'         => 'pending',
             ]);
 
-            // 10. إرجاع الطلب مع المنتجات والدفع
-            return $order->load([
-                'items',
-                'payment',
-            ]);
+            return $order->load(['items', 'payment']);
         });
     }
-        /**
-     * إلغاء العميل لطلبه: مسموح قبل التأكيد والدفع بس.
-     *
-     * @throws \DomainException
-     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException لو الطلب مش بتاعه (404)
-     */
+
     public function cancelByCustomer(User $customer, int $orderId): Order
     {
         return DB::transaction(function () use ($customer, $orderId) {
@@ -223,7 +262,12 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                 throw new \DomainException('تم دفع الطلب، تواصل مع الدعم لإلغائه واسترداد المبلغ');
             }
 
-            return $this->updateStatus($order, 'cancelled')->load(['items', 'payment']);
+            // 3) إضافة ملاحظة عند الإلغاء بواسطة العميل
+            return $this->updateStatus(
+                $order,
+                'cancelled',
+                note: __('تم إلغاء الطلب بواسطة العميل'),
+            )->load(['items', 'payment']);
         });
     }
 
@@ -241,15 +285,17 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
         }
     }
 
-    /**
-     * @throws \DomainException لو الانتقال مش مسموح
-     */
-    public function updateStatus(Order $order, string $status): Order
-    {
+    // 2) تحديث الـ Signature لإضافة الملاحظات
+    public function updateStatus(
+        Order $order,
+        string $status,
+        ?string $note = null,
+        ?string $internalNote = null
+    ): Order {
         $changed = false;
         $commissions = collect();
 
-        $order = DB::transaction(function () use ($order, $status, &$changed, &$commissions) {
+        $order = DB::transaction(function () use ($order, $status, &$changed, &$commissions, $note, $internalNote) {
 
             $order = Order::with('items')->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
@@ -259,7 +305,6 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
 
             $this->assertTransitionAllowed($order->status, $status);
 
-            // طلب مدفوع: الإلغاء/الإرجاع لازم يتم عن طريق استرداد الدفع
             if (
                 in_array($status, ['cancelled', 'returned'], true)
                 && $order->payment()->where('status', 'paid')->exists()
@@ -269,19 +314,14 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                 );
             }
 
-            // منع الشحن أو التوصيل قبل تأكيد الدفع، حسب إعدادات المتجر.
             if (
                 config('store.require_payment_before_shipping', true)
                 && in_array($status, ['shipped', 'delivered'], true)
             ) {
-                $payment = $order->payment()
-                    ->lockForUpdate()
-                    ->first();
+                $payment = $order->payment()->lockForUpdate()->first();
 
                 if (!$payment || $payment->status !== 'paid') {
-                    throw new \DomainException(
-                        'لا يمكن شحن أو تسليم الطلب قبل تأكيد الدفع'
-                    );
+                    throw new \DomainException('لا يمكن شحن أو تسليم الطلب قبل تأكيد الدفع');
                 }
             }
 
@@ -290,13 +330,21 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
             $order->update(['status' => $status]);
             $changed = true;
 
-            // تسجيل التحويل عند اكتمال توصيل الطلب
+            // تسجيل تاريخ تغيير الحالة
+            OrderStatusHistory::create([
+                'order_id'        => $order->id,
+                'status'          => $status,
+                'previous_status' => $previousStatus,
+                'changed_by'      => auth()->id(), // customer أو admin أو null (system)
+                'note'            => $note,
+                'internal_note'   => $internalNote,
+            ]);
+
             if ($status === 'delivered' && $order->promotional_link_id) {
                 PromotionalLink::whereKey($order->promotional_link_id)
                     ->increment('conversions');
             }
 
-            // استبعاد الطلب المرتجع من التحويلات إذا كان قد وصل بالفعل
             if (
                 $status === 'returned'
                 && $previousStatus === 'delivered'
@@ -308,7 +356,6 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
             }
 
             if (in_array($status, ['cancelled', 'returned'], true)) {
-                // نرجّع استخدام الكوبون (إلغاء أو إرجاع) ونقفل الدفعات المعلقة
                 if ($order->coupon_id) {
                     Coupon::whereKey($order->coupon_id)
                         ->where('used_count', '>', 0)
@@ -335,12 +382,8 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
         if ($changed) {
             $orderId = $order->id;
             $commissionTotal = (float) $commissions->sum('commission_amount');
-            // لو في عمولات معلّقة، نبعت تاريخ إتاحتها في الإشعار
             $availableAt = $commissions->where('status', 'pending')->min('available_at');
 
-            // الإشعارات بعد commit فقط: updateStatus ممكن تكون متداخلة داخل
-            // transaction أكبر (markPaid/markRefunded) والإشعار قبل commit
-            // ممكن يبعت للعميل بحالة لسه مااتحفظتش.
             DB::afterCommit(function () use ($orderId, $commissions, $commissionTotal, $availableAt) {
                 $fresh = Order::with(['customer', 'influencer'])->find($orderId);
 
@@ -359,7 +402,6 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
                         ));
                     }
                 } catch (\Throwable $e) {
-                    // تغيير الحالة تم بالفعل؛ فشل الإشعار لا يجب أن يرجع 500 للعميل.
                     report($e);
                 }
             });
@@ -368,61 +410,115 @@ public function isRefApplicable(User $customer, ?string $ref, array $items): boo
         return $order;
     }
 
-    // ========================= helpers =========================
-
-        /**
-     * @return array{0: array, 1: float} [الأسطر, المجموع الفرعي]
-     * @throws \DomainException لو منتج غير متاح أو الكمية غير متوفرة
+    /**
+     * @return array{0: array, 1: float}
+     * @throws \DomainException
      */
     protected function buildLines(array $items, bool $lock): array
     {
-        $quantities = [];
+        // 1) تجميع بالزوج (product_id, variant_id)
+        $combined = [];
         foreach ($items as $item) {
-            $id = (int) $item['product_id'];
-            $quantities[$id] = ($quantities[$id] ?? 0) + (int) $item['quantity'];
-        }
-        ksort($quantities); // ترتيب ثابت للـ lock لتفادي deadlock
+            $productId = (int) $item['product_id'];
+            $variantId = isset($item['variant_id']) && $item['variant_id'] !== null
+                ? (int) $item['variant_id']
+                : null;
+            $key = $productId . ':' . ($variantId ?? 'null');
 
-        $query = Product::whereIn('id', array_keys($quantities));
-        if ($lock) {
-            $query->lockForUpdate();
+            if (!isset($combined[$key])) {
+                $combined[$key] = ['product_id' => $productId, 'variant_id' => $variantId, 'qty' => 0];
+            }
+            $combined[$key]['qty'] += (int) $item['quantity'];
         }
-        $products = $query->get()->keyBy('id');
+        ksort($combined); // ترتيب ثابت لتفادي deadlock
+
+        // 2) جلب المنتجات مرتبة
+        $productIds = array_unique(array_column($combined, 'product_id'));
+        sort($productIds);
+
+        $productQuery = Product::whereIn('id', $productIds);
+        if ($lock) {
+            $productQuery->lockForUpdate();
+        }
+        $products = $productQuery->get()->keyBy('id');
+
+        // 3) جلب الـ variants مرتبة
+        $variantIds = array_values(array_filter(array_column($combined, 'variant_id')));
+        sort($variantIds);
+
+        $variants = collect();
+        if (!empty($variantIds)) {
+            $variantQuery = ProductVariant::whereIn('id', $variantIds);
+            if ($lock) {
+                $variantQuery->lockForUpdate();
+            }
+            $variants = $variantQuery->get()->keyBy('id');
+        }
 
         $lines = [];
         $subtotal = 0.0;
 
-        foreach ($quantities as $productId => $qty) {
-            $product = $products->get($productId);
+        foreach ($combined as $row) {
+            $product = $products->get($row['product_id']);
+            $variant = $row['variant_id'] ? $variants->get($row['variant_id']) : null;
 
-           
-if (!$product || !$product->is_active) {
-    // المنتج المحذوف Soft Delete لا يظهر في الاستعلام العادي.
-    $label = $product?->localized('name')
-        ?? __('رقم :id', ['id' => $productId]);
+            if (!$product || !$product->is_active) {
+                $label = $product?->localized('name')
+                    ?? __('رقم :id', ['id' => $row['product_id']]);
 
-    throw new \DomainException(
-        __('المنتج :label غير متاح', [
-            'label' => $label,
-        ])
-    );
-}
+                throw new \DomainException(
+                    __('المنتج :label غير متاح', ['label' => $label])
+                );
+            }
 
-if ($product->stock < $qty) {
-    throw new \DomainException(
-        __('الكمية المطلوبة من ":name" غير متوفرة (المتاح: :stock)', [
-            'name'  => $product->localized('name'),
-            'stock' => $product->stock,
-        ])
-    );
-}
+            $hasVariants = ProductVariant::where('product_id', $product->id)->exists();
 
+            if ($hasVariants) {
+                if (!$variant) {
+                    throw new \DomainException(
+                        __('لازم تختار المقاس أو اللون للمنتج ":name"', [
+                            'name' => $product->localized('name'),
+                        ])
+                    );
+                }
 
-            $unitPrice = $product->effective_price;
-            $lineTotal = round($unitPrice * $qty, 2);
+                if ((int) $variant->product_id !== (int) $product->id) {
+                    throw new \DomainException(__('الـ variant المختار لا يتبع هذا المنتج'));
+                }
+
+                if (!$variant->is_active) {
+                    throw new \DomainException(__('الـ variant المختار غير متاح'));
+                }
+
+                $available = (int) $variant->stock;
+            } else {
+                if ($variant) {
+                    throw new \DomainException(__('هذا المنتج ليس له variants'));
+                }
+                $available = (int) $product->stock;
+            }
+
+            if ($available < $row['qty']) {
+                throw new \DomainException(
+                    __('الكمية المطلوبة من ":name" غير متوفرة (المتاح: :stock)', [
+                        'name'  => $product->localized('name'),
+                        'stock' => $available,
+                    ])
+                );
+            }
+
+            $pricing = $product->resolvePrice($variant);
+            $unitPrice = $pricing['final'];
+            $lineTotal = round($unitPrice * $row['qty'], 2);
             $subtotal += $lineTotal;
 
-            $lines[] = compact('product', 'qty', 'unitPrice', 'lineTotal');
+            $lines[] = [
+                'product'   => $product,
+                'variant'   => $variant,
+                'qty'       => $row['qty'],
+                'unitPrice' => $unitPrice,
+                'lineTotal' => $lineTotal,
+            ];
         }
 
         return [$lines, round($subtotal, 2)];
@@ -455,12 +551,10 @@ if ($product->stock < $qty) {
             return null;
         }
 
-        // المؤثر بيشتري بحساب تاني بنفس التليفون/الإيميل
         if ($this->looksLikeSelfReferral($influencer, $customer, $contact)) {
             return null;
         }
 
-        // الرابط الخاص بمنتج لا يُنسب إلا لطلب يحتوي على هذا المنتج.
         if (
             $link->product_id !== null
             && !in_array((int) $link->product_id, $orderedProductIds, true)
@@ -471,7 +565,6 @@ if ($product->stock < $qty) {
         return $link;
     }
 
-    /** نفس تليفون/إيميل المؤثر في حساب العميل أو في بيانات الطلب */
     protected function looksLikeSelfReferral(User $influencer, User $customer, array $contact): bool
     {
         $influencerPhone = $this->normalizePhone($influencer->phone);
@@ -491,7 +584,6 @@ if ($product->stock < $qty) {
             || ($influencerEmail && in_array($influencerEmail, $emails, true));
     }
 
-    /** أرقام بس، وآخر 10 خانات (يتجاوز +20 و0 في الأول) */
     protected function normalizePhone(?string $phone): ?string
     {
         $digits = preg_replace('/\D+/', '', (string) $phone);
@@ -499,7 +591,7 @@ if ($product->stock < $qty) {
         return strlen($digits) >= 8 ? substr($digits, -10) : null;
     }
 
-       protected function assertTransitionAllowed(string $from, string $to): void
+    protected function assertTransitionAllowed(string $from, string $to): void
     {
         if (in_array($from, ['cancelled', 'returned'], true)) {
             throw new \DomainException('لا يمكن تغيير حالة طلب ملغي أو مرتجع');
@@ -517,24 +609,29 @@ if ($product->stock < $qty) {
         }
     }
 
-
-
     protected function restoreStock(Order $order): void
     {
+        $affectedProductIds = [];
+
         foreach ($order->items as $item) {
-            if ($item->product_id) {
+            if ($item->variant_id) {
+                ProductVariant::whereKey($item->variant_id)->increment('stock', $item->quantity);
+                if ($item->product_id) {
+                    $affectedProductIds[$item->product_id] = true;
+                }
+            } elseif ($item->product_id) {
                 Product::withTrashed()->whereKey($item->product_id)->increment('stock', $item->quantity);
+            }
+        }
+
+        foreach (array_keys($affectedProductIds) as $productId) {
+            $product = Product::find($productId);
+            if ($product) {
+                $this->variantService->syncProductStock($product);
             }
         }
     }
 
-    /**
-     * نسبة العمولة القادمة من pivot influencer_product.
-     *
-     * null / '' = النسبة الافتراضية (INFLUENCER_DEFAULT_COMMISSION)،
-     * وأي قيمة غير رقمية أو خارج 0..100 تُعتبر غير صالحة (غير مؤهل).
-     * 0 = مؤهل بنسبة صفر.
-     */
     protected static function resolveCommissionPercentage(mixed $value): ?float
     {
         if ($value === null || $value === '') {
@@ -558,7 +655,6 @@ if ($product->stock < $qty) {
     {
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
-                // transaction متداخلة = savepoint، تسمح بإعادة المحاولة بأمان.
                 return DB::transaction(fn () => Order::create([
                     ...$attributes,
                     'order_number' => $this->generateOrderNumber(),

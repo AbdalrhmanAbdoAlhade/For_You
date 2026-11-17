@@ -34,6 +34,8 @@ class Order extends Model
         'notes',
         'coupon_id',
         'coupon_code',
+         'shipping_method',   // جديد
+    'cod_fee',           // جديد
     ];
 
     protected $casts = [
@@ -41,6 +43,7 @@ class Order extends Model
         'discount' => 'decimal:2',
         'shipping_cost' => 'decimal:2',
         'total' => 'decimal:2',
+      'cod_fee' => 'decimal:2', 
     ];
 
       /** الحالات اللي مبتتحسبش مبيعات */
@@ -84,5 +87,17 @@ class Order extends Model
     public function commissions(): HasMany
     {
         return $this->hasMany(InfluencerCommission::class);
+    }
+  
+  	/** كل تغييرات الحالة (timeline) */
+    public function statusHistories(): HasMany
+    {
+        return $this->hasMany(OrderStatusHistory::class);
+    }
+
+    /** آخر تغيير حالة (للـ OrderResource) */
+    public function latestStatusHistory(): HasOne
+    {
+        return $this->hasOne(OrderStatusHistory::class)->latestOfMany('id');
     }
 }
