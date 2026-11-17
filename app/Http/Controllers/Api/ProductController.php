@@ -106,9 +106,20 @@ protected function applyBestMatchSort($query, string $q): void
     ->orderByDesc('reviews_count');
 }
 
-public function show(Product $product)
+public function show(Product $product, Request $request)
 {
-    $product->load(['category', 'brand', 'variants']);
+    $isStaff = $request->user()
+        && in_array($request->user()->type, ['admin', 'employee'], true);
+
+    // Public: inactive product = 404. Staff: allowed (existing admin behavior preserved)
+    abort_if(!$product->is_active && !$isStaff, 404);
+
+    // Public: only active variants. Staff: all variants (for admin/editor review)
+    $product->load([
+        'category',
+        'brand',
+        'variants' => fn ($q) => $isStaff ? $q : $q->where('is_active', true),
+    ]);
 
     // styled_by: DB::table مباشرة (مثبت شغال)
     $creator = \DB::table('influencer_product')
@@ -142,26 +153,25 @@ public function show(Product $product)
             'price'          => $v->price !== null ? (float) $v->price : null,
             'discount_price' => $v->discount_price !== null ? (float) $v->discount_price : null,
             'in_stock'       => (bool) $v->is_in_stock,
+            'is_active'      => (bool) $v->is_active,   // ← جديد: يظهر للـ staff
             'sort_order'     => (int) $v->sort_order,
         ];
     }
 
-    // category و brand كـ array بسيط
     $category = $product->category ? [
         'id'   => $product->category->id,
         'name' => $product->category->localized('name'),
         'slug' => $product->category->slug,
     ] : null;
 
-    $brand = ($product->brand && $product->brand->is_active) ? [
-        'id'   => $product->brand->id,
-        'name' => $product->brand->localized('name'),
-        'slug' => $product->brand->slug,
-        'logo' => $product->brand->logo,
-    ] : null;
+    $brand = ($product->brand && ($isStaff || $product->brand->is_active)) ? [
+    'id'   => $product->brand->id,
+    'name' => $product->brand->localized('name'),
+    'slug' => $product->brand->slug,
+    'logo' => $product->brand->logo,
+] : null;
 
-    // نبني الـ response كـ plain array (مفيش ProductResource)
-    $data = [
+    return response()->json(['data' => [
         'id'                => $product->id,
         'name'              => $product->localized('name'),
         'slug'              => $product->slug,
@@ -181,9 +191,7 @@ public function show(Product $product)
         'brand'             => $brand,
         'styled_by'         => $styledBy,
         'created_at'        => $product->created_at?->toDateTimeString(),
-    ];
-
-    return response()->json(['data' => $data]);
+    ]]);
 }
   /** GET /api/products/{id}/related — "Complete the look" */
 public function related(Request $request, Product $product)
