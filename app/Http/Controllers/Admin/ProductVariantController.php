@@ -63,25 +63,43 @@ class ProductVariantController extends Controller
         return response()->json(['data' => $variant->fresh()]);
     }
 
-    public function destroy(Product $product, ProductVariant $variant): JsonResponse
-    {
-        if ($variant->product_id !== $product->id) {
-            abort(404);
-        }
-
-        // امنع الحذف لو الـ variant مستخدم في أوردرات (حفاظاً على التاريخ)
-        if ($variant->orderItems()->exists()) {
-            return response()->json([
-                'message' => 'الـ variant مستخدم في أوردرات سابقة، عطّله بدل الحذف',
-            ], 422);
-        }
-
-        $variant->delete();
-        $this->variants->syncProductStock($product);
-
-        return response()->json(['message' => 'تم حذف الـ variant']);
+   public function destroy(Product $product, ProductVariant $variant): JsonResponse
+{
+    if ($variant->product_id !== $product->id) {
+        abort(404);
     }
 
+    // Block deletion if variant was used in any historical order (preserve snapshots + FK integrity)
+    if ($variant->orderItems()->exists()) {
+        return response()->json([
+            'message' => 'الـ variant مستخدم في أوردرات سابقة، عطّله بدل الحذف',
+        ], 422);
+    }
+
+    $deletedCartItemsCount = 0;
+
+    try {
+        \DB::transaction(function () use ($product, $variant, &$deletedCartItemsCount) {
+            // Delete dependent cart items FIRST to prevent orphans
+            // (otherwise variant_id becomes NULL via nullOnDelete, leaving broken cart entries)
+            $deletedCartItemsCount = $variant->cartItems()->delete();
+
+            $variant->delete();
+
+            $this->variants->syncProductStock($product);
+        });
+    } catch (\Throwable $e) {
+        report($e);
+        return response()->json([
+            'message' => 'تعذر حذف الـ variant، حاول مرة أخرى',
+        ], 500);
+    }
+
+    return response()->json([
+        'message'             => 'تم حذف الـ variant',
+        'deleted_cart_items'  => $deletedCartItemsCount,
+    ]);
+}
     /** تحويل منتج simple لـ variants — لازم مجموع الـ stock يتطابق */
     public function convert(Request $request, Product $product): JsonResponse
     {
