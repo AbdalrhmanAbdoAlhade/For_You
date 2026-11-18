@@ -67,6 +67,7 @@ use App\Http\Controllers\Api\SupportController;
 // Public Routes
 // ======================================================================
 
+Route::get('admin/health/fcm', fn () => response()->json(app(\App\Services\FcmService::class)->configStatus()));
 Route::get('faqs', [FaqController::class, 'index']);
 Route::get('support/contact', [SupportController::class, 'contact']);
 
