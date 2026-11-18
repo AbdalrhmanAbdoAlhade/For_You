@@ -18,30 +18,69 @@ class CustomerController extends Controller
     ) {}
 
     public function index(Request $request)
-    {
-        $request->validate([
-            'search'    => 'nullable|string|max:100',
-            'is_active' => 'nullable|boolean',
-        ]);
+{
+    $request->validate([
+        'search'    => 'nullable|string|max:100',
+        'is_active' => 'nullable|boolean',
+    ]);
 
-        $customers = User::customers()
-            ->withCount('ordersAsCustomer as orders_count')
-            ->withSum(['ordersAsCustomer as total_spent' => function ($q) {
-                $q->whereIn('status', Order::SALE_STATUSES);
-            }], 'total')
-            ->when($request->search, function ($q) use ($request) {
-                $q->where(function ($q) use ($request) {
-                    $q->where('name', 'like', "%{$request->search}%")
-                      ->orWhere('email', 'like', "%{$request->search}%")
-                      ->orWhere('phone', 'like', "%{$request->search}%");
-                });
-            })
-            ->when($request->is_active !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
-            ->latest()
-            ->paginate(20);
+    $customers = User::customers()
+        ->withCount('ordersAsCustomer as orders_count')
+        ->withSum(['ordersAsCustomer as total_spent' => function ($q) {
+            $q->whereIn('status', Order::SALE_STATUSES);
+        }], 'total')
+        ->when($request->search, function ($q) use ($request) {
+            $q->where(function ($q) use ($request) {
+                $q->where('name', 'like', "%{$request->search}%")
+                  ->orWhere('email', 'like', "%{$request->search}%")
+                  ->orWhere('phone', 'like', "%{$request->search}%");
+            });
+        })
+        ->when($request->is_active !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
+        ->latest()
+        ->paginate(20);
 
-        return response()->json($customers);
-    }
+    $payload = $customers->toArray();
+    $payload['stats'] = $this->stats();
+
+    return response()->json($payload);
+}
+
+/**
+ * إحصائيات كروت صفحة العملاء (إجمالية، مش متأثرة بالبحث/الفلتر).
+ */
+protected function stats(): array
+{
+    // عملاء اتسجلوا الشهر ده
+    $newThisMonth = User::customers()
+        ->where('created_at', '>=', now()->startOfMonth())
+        ->count();
+
+    // عملاء عندهم أكتر من أوردر مبيع
+    $returningBuyers = User::customers()
+        ->whereHas('ordersAsCustomer', function ($q) {
+            $q->whereIn('status', Order::SALE_STATUSES);
+        }, '>=', 2)
+        ->count();
+
+    // عملاء اشتروا عن طريق لينك مؤثر (أوردر واحد على الأقل فيه influencer_id)
+    $cameViaInfluencer = User::customers()
+        ->whereHas('ordersAsCustomer', function ($q) {
+            $q->whereIn('status', Order::SALE_STATUSES)
+              ->whereNotNull('influencer_id');
+        })
+        ->count();
+
+    // متوسط قيمة الأوردر (أوردرات المبيع فقط)
+    $avgOrderValue = (float) Order::whereIn('status', Order::SALE_STATUSES)->avg('total');
+
+    return [
+        'new_this_month'      => $newThisMonth,
+        'returning_buyers'    => $returningBuyers,
+        'came_via_influencer' => $cameViaInfluencer,
+        'avg_order_value'     => round($avgOrderValue, 2),
+    ];
+}
 
     public function show(User $customer)
     {
