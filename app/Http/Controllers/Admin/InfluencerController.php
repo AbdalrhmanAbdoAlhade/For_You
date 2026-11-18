@@ -13,13 +13,15 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\InfluencerCommission;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
+use App\Services\FileUploadService;
 
 class InfluencerController extends Controller
 {
     public function __construct(
-        protected PromotionalLinkService $linkService,
-        protected WalletService $walletService
-    ) {}
+    protected PromotionalLinkService $linkService,
+    protected WalletService $walletService,
+    protected FileUploadService $fileUploadService
+) {}
 
   public function index(Request $request)
 {
@@ -88,71 +90,175 @@ class InfluencerController extends Controller
         return $inf;
     });
 
-    return response()->json($influencers);
+    $payload = $influencers->toArray();
+    $payload['stats'] = $this->stats($since30d);
+
+    return response()->json($payload);
+}
+
+/**
+ * إحصائيات كروت صفحة المؤثرين (إجمالية لكل المؤثرين، مش متأثرة بالبحث/الفلتر).
+ */
+protected function stats($since30d): array
+{
+    // Sales through links · 30 days
+    $sales = Order::whereNotNull('influencer_id')
+        ->whereIn('status', Order::SALE_STATUSES)
+        ->where('created_at', '>=', $since30d)
+        ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(total), 0) as revenue')
+        ->first();
+
+    // Commission earned
+    $commissionEarned = (float) InfluencerCommission::whereIn('status', InfluencerCommission::EARNED_STATUSES)
+        ->sum('commission_amount');
+
+    // Wallet balance owed (مجموع أرصدة محافظ كل المؤثرين)
+    $walletOwed = (float) User::influencers()
+        ->withSum('wallet as wallet_total', 'balance')
+        ->get()
+        ->sum('wallet_total');
+
+    // Avg. commission rate (على الربط النشط بنسبة محددة)
+    $avgRate = (float) DB::table('influencer_product')
+        ->where('is_active', true)
+        ->whereNotNull('commission_percentage')
+        ->avg('commission_percentage');
+
+    return [
+        'sales_through_links_30d' => [
+            'orders_count' => (int) ($sales->orders_count ?? 0),
+            'revenue'      => (float) ($sales->revenue ?? 0),
+        ],
+        'commission_earned'   => round($commissionEarned, 2),
+        'wallet_balance_owed' => round($walletOwed, 2),
+        'avg_commission_rate' => round($avgRate, 2),
+    ];
 }
     public function store(Request $request)
-    {
-        $data = $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
-            'phone'    => 'nullable|string|unique:users,phone',
-            'password' => 'required|string|min:8',
-            'is_active'=> 'boolean',
-        ]);
+{
+    $data = $request->validate([
+        'name'      => 'required|string|max:255',
+        'email'     => 'required|email|unique:users,email',
+        'phone'     => 'nullable|string|unique:users,phone',
+        'password'  => 'required|string|min:8',
+        'is_active' => 'boolean',
+        'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+    ]);
+
+    $avatar = null;
+
+    try {
+        if ($request->hasFile('avatar')) {
+            $avatar = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
+            $data['avatar'] = $avatar;
+        } else {
+            unset($data['avatar']);
+        }
 
         $influencer = User::create([
             ...$data,
             'password' => Hash::make($data['password']),
             'type'     => 'influencer',
         ]);
+    } catch (\Throwable $e) {
+        $this->fileUploadService->delete($avatar);
 
-        // إنشاء محفظة تلقائيًا
-        $this->walletService->getOrCreateWallet($influencer->id);
-
-        AuditLog::record('influencer.created', $influencer, ['email' => $influencer->email]);
-
-        return response()->json($influencer, 201);
+        throw $e;
     }
 
-    public function show(User $influencer)
-    {
-        abort_if($influencer->type !== 'influencer', 404);
+    // إنشاء محفظة تلقائيًا
+    $this->walletService->getOrCreateWallet($influencer->id);
 
-        return response()->json(
-            $influencer->load(['wallet', 'influencerProducts', 'promotionalLinks', 'commissions'])
-        );
+    AuditLog::record('influencer.created', $influencer, ['email' => $influencer->email]);
+
+    return response()->json($influencer, 201);
+}
+
+public function show(User $influencer)
+{
+    abort_if($influencer->type !== 'influencer', 404);
+
+    $influencer->load(['wallet', 'influencerProducts', 'promotionalLinks', 'commissions']);
+
+    // مبيعات الطلبات عبر روابط المؤثر (كل الفترة)
+    $allTime = Order::where('influencer_id', $influencer->id)
+        ->whereIn('status', Order::SALE_STATUSES)
+        ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(total), 0) as revenue')
+        ->first();
+
+    // آخر 30 يوم
+    $last30 = Order::where('influencer_id', $influencer->id)
+        ->whereIn('status', Order::SALE_STATUSES)
+        ->where('created_at', '>=', now()->subDays(30))
+        ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(total), 0) as revenue')
+        ->first();
+
+    $payload = $influencer->toArray();
+
+    $payload['sales_through_links'] = [
+        'orders_count' => (int) ($allTime->orders_count ?? 0),
+        'revenue'      => round((float) ($allTime->revenue ?? 0), 2),
+    ];
+
+    $payload['sales_through_links_30d'] = [
+        'orders_count' => (int) ($last30->orders_count ?? 0),
+        'revenue'      => round((float) ($last30->revenue ?? 0), 2),
+    ];
+
+    return response()->json($payload);
+}
+
+   public function update(Request $request, User $influencer)
+{
+    abort_if($influencer->type !== 'influencer', 404);
+
+    $data = $request->validate([
+        'name'      => 'sometimes|string|max:255',
+        'email'     => 'sometimes|email|unique:users,email,' . $influencer->id,
+        'phone'     => 'nullable|string|unique:users,phone,' . $influencer->id,
+        'password'  => 'nullable|string|min:8',
+        'is_active' => 'boolean',
+        'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+    ]);
+
+    if (!empty($data['password'])) {
+        $data['password'] = Hash::make($data['password']);
+    } else {
+        unset($data['password']);
     }
 
-    public function update(Request $request, User $influencer)
-    {
-        abort_if($influencer->type !== 'influencer', 404);
+    $oldAvatar = $influencer->avatar;
+    $newAvatar = null;
 
-        $data = $request->validate([
-            'name'      => 'sometimes|string|max:255',
-            'email'     => 'sometimes|email|unique:users,email,' . $influencer->id,
-            'phone'     => 'nullable|string|unique:users,phone,' . $influencer->id,
-            'password'  => 'nullable|string|min:8',
-            'is_active' => 'boolean',
-        ]);
+    if ($request->hasFile('avatar')) {
+        $newAvatar = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
+        $data['avatar'] = $newAvatar;
+    } else {
+        unset($data['avatar']);
+    }
 
-        if (!empty($data['password'])) {
-            $data['password'] = Hash::make($data['password']);
-        } else {
-            unset($data['password']);
-        }
-
+    try {
         $influencer->update($data);
+    } catch (\Throwable $e) {
+        $this->fileUploadService->delete($newAvatar);
 
-        AuditLog::record('influencer.updated', $influencer, [
-            'email'     => $influencer->email,
-            'is_active' => $influencer->is_active,
-        ]);
-
-        // تفعيل/تعطيل المؤثر بيغيّر influencer_picks في الرئيسية
-        HomeController::flush();
-
-        return response()->json($influencer);
+        throw $e;
     }
+
+    if ($newAvatar) {
+        $this->fileUploadService->delete($oldAvatar);
+    }
+
+    AuditLog::record('influencer.updated', $influencer, [
+        'email'     => $influencer->email,
+        'is_active' => $influencer->is_active,
+    ]);
+
+    // تفعيل/تعطيل المؤثر بيغيّر influencer_picks في الرئيسية
+    HomeController::flush();
+
+    return response()->json($influencer->fresh());
+}
 
     public function attachProducts(Request $request, User $influencer)
     {
