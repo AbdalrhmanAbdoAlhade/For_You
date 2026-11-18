@@ -67,17 +67,11 @@ public function shippingCost(float $amountAfterDiscount, ?string $city, ?string 
 /**
  * رسوم COD — تتفعل فقط لو payment_method يطابق cod_payment_method (default: manual)
  */
-public function codFee(?string $paymentMethod): float
+ public function codFee(?string $paymentMethod): float
 {
-    if ($paymentMethod === null) {
-        return 0.0;
-    }
-
+    if ($paymentMethod === null) return 0.0;
     $codMethod = (string) config('store.shipping.cod_payment_method', 'manual');
-    if ($paymentMethod !== $codMethod) {
-        return 0.0;
-    }
-
+    if ($paymentMethod !== $codMethod) return 0.0;
     return round((float) config('store.shipping.cod_fee', 0), 2);
 }
 

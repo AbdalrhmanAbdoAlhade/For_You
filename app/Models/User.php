@@ -31,20 +31,20 @@ class User extends Authenticatable
        'language',
     ];
 
-    protected $hidden = [
-        'password',
-        'remember_token',
-        'deleted_email',
-        'deleted_phone',
-        'provider_id',
-      'is_verified' => 'boolean', 
-    ];
+ protected $hidden = [
+    'password',
+    'remember_token',
+    'deleted_email',
+    'deleted_phone',
+    'provider_id',
+];
 
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'is_active' => 'boolean',
-        'password' => 'hashed',
-    ];
+protected $casts = [
+    'email_verified_at' => 'datetime',
+    'is_active'         => 'boolean',
+    'is_verified'       => 'boolean',
+    'password'          => 'hashed',
+];
 
     /**
      * عند الحذف الناعم نحرر البريد/الهاتف للاستخدام مرة أخرى
