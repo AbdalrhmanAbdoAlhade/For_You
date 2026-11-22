@@ -29,6 +29,11 @@ class StoryController extends Controller
      */
     public function store(Request $request)
     {
+     \Log::info('story upload debug', [
+    'all_files'  => array_keys($request->allFiles()),
+    'all_inputs' => array_keys($request->all()),
+    'content_type' => $request->header('Content-Type'),
+]);
         $max = max(1, (int) config('store.story_max_products', 10));
 
         $data = $request->validate([

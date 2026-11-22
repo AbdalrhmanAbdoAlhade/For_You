@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Brand;
 use App\Services\BrandFollowService;
 use Illuminate\Http\Request;
+use App\Http\Resources\BrandResource;
 
 class BrandFollowController extends Controller
 {
@@ -29,7 +30,7 @@ class BrandFollowController extends Controller
         return response()->json($this->follows->unfollow($request->user(), $brand));
     }
 
-/** GET following/brands: كل البراندات اللي بتابعها */
+  /** GET following/brands: كل البراندات اللي بتابعها */
 public function following(Request $request)
 {
     $list = $request->user()->followedBrands()
@@ -43,5 +44,4 @@ public function following(Request $request)
 
     return BrandResource::collection($list);
 }
-    
 }

@@ -233,7 +233,99 @@ class ReportController extends Controller
         'products_count'           => (int) $r->products_count,
     ]));
 }
+public function salesSources(Request $request)
+{
+    $request->validate([
+        'from' => 'nullable|date',
+        'to'   => 'nullable|date|after_or_equal:from',
+    ]);
 
+    $timezone = config('app.timezone');
+    $from = $request->filled('from')
+        ? Carbon::parse($request->from, $timezone)->startOfDay()
+        : now($timezone)->subDays(30)->startOfDay();
+    $to = $request->filled('to')
+        ? Carbon::parse($request->to, $timezone)->endOfDay()
+        : now($timezone)->endOfDay();
+
+    $row = Order::whereIn('status', $this->saleStatuses())
+        ->whereBetween('created_at', [$from, $to])
+        ->selectRaw("
+            COALESCE(SUM(CASE WHEN influencer_id IS NULL THEN total END), 0) AS direct_sales,
+            COALESCE(SUM(CASE WHEN influencer_id IS NULL THEN 1 ELSE 0 END), 0) AS direct_orders,
+            COALESCE(SUM(CASE WHEN influencer_id IS NOT NULL THEN total END), 0) AS influencer_sales,
+            COALESCE(SUM(CASE WHEN influencer_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS influencer_orders
+        ")
+        ->first();
+
+    $direct     = (float) $row->direct_sales;
+    $influencer = (float) $row->influencer_sales;
+    $total      = $direct + $influencer;
+
+    return response()->json([
+        'from'        => $from->toDateString(),
+        'to'          => $to->toDateString(),
+        'total_sales' => round($total, 2),
+        'sources'     => [
+            [
+                'key'          => 'direct',
+                'sales'        => round($direct, 2),
+                'orders_count' => (int) $row->direct_orders,
+                'percentage'   => $total > 0 ? round($direct / $total * 100, 1) : 0,
+            ],
+            [
+                'key'          => 'influencer',
+                'sales'        => round($influencer, 2),
+                'orders_count' => (int) $row->influencer_orders,
+                'percentage'   => $total > 0 ? round($influencer / $total * 100, 1) : 0,
+            ],
+        ],
+    ]);
+}
+
+public function orderOutcomes(Request $request)
+{
+    $request->validate([
+        'from' => 'nullable|date',
+        'to'   => 'nullable|date|after_or_equal:from',
+    ]);
+
+    $timezone = config('app.timezone');
+    $from = $request->filled('from')
+        ? Carbon::parse($request->from, $timezone)->startOfDay()
+        : now($timezone)->subDays(30)->startOfDay();
+    $to = $request->filled('to')
+        ? Carbon::parse($request->to, $timezone)->endOfDay()
+        : now($timezone)->endOfDay();
+
+    // الطلبات اللي وصلت لحالة نهائية بس
+    $row = Order::whereBetween('created_at', [$from, $to])
+        ->whereIn('status', ['delivered', 'cancelled', 'returned'])
+        ->selectRaw("
+            COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered,
+            COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled,
+            COALESCE(SUM(CASE WHEN status = 'returned'  THEN 1 ELSE 0 END), 0) AS returned
+        ")
+        ->first();
+
+    $delivered = (int) $row->delivered;
+    $cancelled = (int) $row->cancelled;
+    $returned  = (int) $row->returned;
+    $total     = $delivered + $cancelled + $returned;
+
+    $pct = fn (int $n) => $total > 0 ? round($n / $total * 100, 1) : 0;
+
+    return response()->json([
+        'from'         => $from->toDateString(),
+        'to'           => $to->toDateString(),
+        'total_orders' => $total,
+        'outcomes'     => [
+            ['key' => 'delivered', 'count' => $delivered, 'percentage' => $pct($delivered)],
+            ['key' => 'cancelled', 'count' => $cancelled, 'percentage' => $pct($cancelled)],
+            ['key' => 'returned',  'count' => $returned,  'percentage' => $pct($returned)],
+        ],
+    ]);
+}
     public function overview()
     {
         return response()->json([
