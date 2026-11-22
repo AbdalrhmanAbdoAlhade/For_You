@@ -156,17 +156,18 @@ protected $casts = [
         return $this->belongsToMany(User::class, 'influencer_follows', 'influencer_id', 'user_id')
             ->withTimestamps();
     }
-        /** اللي بيتابعوا البراند ده */
-    public function followers(): BelongsToMany
-    {
-        return $this->belongsToMany(User::class, 'brand_follows', 'brand_id', 'user_id')
-            ->withTimestamps();
-    }
-    
+
     /** المؤثرين اللي المستخدم ده بيتابعهم */
     public function following(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'influencer_follows', 'user_id', 'influencer_id')
+            ->withTimestamps();
+    }
+  
+        /** البراندات اللي المستخدم ده بيتابعها */
+    public function followedBrands(): BelongsToMany
+    {
+        return $this->belongsToMany(Brand::class, 'brand_follows', 'user_id', 'brand_id')
             ->withTimestamps();
     }
 

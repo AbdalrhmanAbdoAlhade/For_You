@@ -41,14 +41,14 @@ class Brand extends Model
     public function reviews(): HasManyThrough
     {
         return $this->hasManyThrough(ProductReview::class, Product::class);
-    }    
-
-    /** اللي بيتابعوا البراند ده */
-public function followers(): BelongsToMany
-{
-    return $this->belongsToMany(User::class, 'brand_follows', 'brand_id', 'user_id')
-        ->withTimestamps();
-}
+    }	
+  	
+        /** اللي بيتابعوا البراند ده */
+    public function followers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'brand_follows', 'brand_id', 'user_id')
+            ->withTimestamps();
+    }
 
   /** المؤثرون المرتبطون بالبراند (Many-to-Many) */
 public function influencers(): BelongsToMany
