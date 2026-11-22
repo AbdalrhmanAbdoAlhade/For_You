@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\CreatorProfileController;
+use App\Http\Controllers\Api\BrandFollowController;
 
 // ===== Influencer area =====
 use App\Http\Controllers\Api\Influencer\DashboardController as InfluencerDashboardController;
@@ -158,6 +159,9 @@ Route::prefix('devices')->group(function () {
     Route::post('/', [DeviceController::class, 'store']);
     Route::delete('/', [DeviceController::class, 'destroy']);
 });
+  Route::post('brands/{id}/follow', [BrandFollowController::class, 'follow']);
+Route::delete('brands/{id}/follow', [BrandFollowController::class, 'unfollow']);
+Route::get('following/brands', [BrandFollowController::class, 'following']);
      // ---- Account ----
 Route::prefix('auth')->group(function () {
     Route::get('me', [AuthController::class, 'me']);
@@ -389,7 +393,9 @@ Route::get('reports/categories', [ReportController::class, 'categories'])
         Route::get('reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.sales,reports.view');
         Route::get('reports/influencers', [ReportController::class, 'influencers'])->middleware('permission:reports.influencers,reports.view');
         Route::get('reports/top-products', [ReportController::class, 'topProducts'])->middleware('permission:reports.view');
-
+		Route::get('reports/sales-sources', [ReportController::class, 'salesSources'])->middleware('permission:reports.view');
+        Route::get('reports/order-outcomes', [ReportController::class, 'orderOutcomes'])->middleware('permission:reports.view');
+      	
         // ---- Roles & Permissions ----
         Route::get('permissions', [RoleController::class, 'permissions'])->middleware('permission:roles.manage,permissions.manage');
         Route::get('roles', [RoleController::class, 'index'])->middleware('permission:roles.manage');
