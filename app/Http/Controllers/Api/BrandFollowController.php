@@ -29,21 +29,19 @@ class BrandFollowController extends Controller
         return response()->json($this->follows->unfollow($request->user(), $brand));
     }
 
-    /** GET following/brands: كل البراندات اللي بتابعها */
-    public function following(Request $request)
-    {
-        $list = $request->user()->followedBrands()
-            ->where('brands.is_active', true)
-            ->orderBy('brands.name')
-            ->paginate(20);
+/** GET following/brands: كل البراندات اللي بتابعها */
+public function following(Request $request)
+{
+    $list = $request->user()->followedBrands()
+        ->where('brands.is_active', true)
+        ->withCount('followers')
+        ->orderBy('brands.name')
+        ->paginate(20);
 
-        $list->through(fn ($b) => [
-            'id'   => $b->id,
-            'name' => $b->localized('name'),
-            'slug' => $b->slug,
-            'logo' => $b->logo,
-        ]);
+    // المستخدم بيتابعهم كلهم بالتعريف
+    $list->getCollection()->each(fn ($brand) => $brand->is_following = true);
 
-        return response()->json($list);
-    }
+    return BrandResource::collection($list);
+}
+    
 }
