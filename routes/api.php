@@ -136,7 +136,7 @@ Route::get('stories/discover', [StoryController::class, 'discover']);
 Route::get('stories/featured', [StoryController::class, 'featured']);
 
 Route::get('brands', [ApiBrandController::class, 'index']);
-Route::get('brands/{id}', [ApiBrandController::class, 'show']);
+Route::get('/brands/{slug}', [App\Http\Controllers\Api\BrandController::class, 'show']);
 
 // ---- تتبع الرابط الترويجي (بيزود الـ clicks) ----
 Route::get('track/{code}', [TrackController::class, 'show'])->middleware('throttle:track');
