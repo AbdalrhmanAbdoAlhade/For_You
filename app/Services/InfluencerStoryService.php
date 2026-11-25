@@ -190,19 +190,53 @@ try {
     }
 
     /** مؤثرين عندهم قصص حالية (للزائر أو لمن لا يتابع أحدًا) */
-    public function discoverRail(?User $viewer = null, int $limit = 20): Collection
-    {
-        $creators = User::query()
-            ->influencers()
-            ->active()
-            ->whereHas('stories', fn ($q) => $q->live())
-            ->withMax(['stories as latest_story_at' => fn ($q) => $q->live()], 'created_at')
-            ->orderByDesc('latest_story_at')
-            ->limit($limit)
-            ->get();
+   
+/** مؤثرين عندهم قصص حالية، مرتبين حسب أداء آخر 7 أيام */
+public function discoverRail(?User $viewer = null, int $limit = 20): Collection
+{
+    // الطلبات التي وصلت إلى delivered خلال آخر 7 أيام
+    // ويجب أن تظل حالتها الحالية delivered.
+    $performance = DB::table('orders')
+        ->join('order_status_histories as osh', 'osh.order_id', '=', 'orders.id')
+        ->whereNull('orders.deleted_at')
+        ->whereNotNull('orders.influencer_id')
+        ->where('orders.status', 'delivered')
+        ->where('osh.status', 'delivered')
+        ->where('osh.created_at', '>=', now()->subDays(7))
+        ->select(
+            'orders.influencer_id',
+            DB::raw('COUNT(DISTINCT orders.id) as weekly_delivered_orders_count'),
+            DB::raw('MAX(osh.created_at) as last_delivered_at')
+        )
+        ->groupBy('orders.influencer_id');
 
-        return $this->buildRail($creators, $viewer);
-    }
+    $creators = User::query()
+        ->influencers()
+        ->active()
+        ->whereHas('stories', fn ($q) => $q->live())
+        ->leftJoinSub($performance, 'weekly_performance', function ($join) {
+            $join->on('users.id', '=', 'weekly_performance.influencer_id');
+        })
+        ->select('users.*')
+        ->addSelect(
+            DB::raw('COALESCE(weekly_performance.weekly_delivered_orders_count, 0) as weekly_delivered_orders_count'),
+            'weekly_performance.last_delivered_at'
+        )
+        ->withMax(
+            ['stories as latest_story_at' => fn ($q) => $q->live()],
+            'created_at'
+        )
+        ->orderByDesc('weekly_delivered_orders_count')
+        ->orderByDesc('weekly_performance.last_delivered_at')
+        ->orderByDesc('latest_story_at')
+        ->orderBy('users.id')
+        ->limit($limit)
+        ->get();
+
+    // الحفاظ على ترتيب الأداء وعدم إعادة ترتيبه حسب المشاهدات
+    return $this->buildRail($creators, $viewer, true);
+}
+
 
     /** تسجيل مشاهدة (مرة واحدة لكل مستخدم). مشاهدة المؤثر لقصته مابتتحسبش. */
     public function markViewed(InfluencerStory $story, User $viewer): void
@@ -244,7 +278,11 @@ try {
     // Internals
     // ======================================================================
 
-    protected function buildRail(Collection $creators, ?User $viewer): Collection
+    protected function buildRail(
+    Collection $creators,
+    ?User $viewer,
+    bool $preserveOrder = false
+): Collection
     {
         if ($creators->isEmpty()) {
             return collect();
@@ -258,22 +296,35 @@ try {
         $seen      = $viewer ? $this->idsFor('influencer_story_views', $viewer->id, $stories->pluck('id')->all()) : [];
         $byCreator = $stories->groupBy('influencer_id');
 
-        return $creators
-            ->map(function (User $creator) use ($byCreator, $seen) {
-                $mine = $byCreator->get($creator->id, collect());
+    
+$rail = $creators->map(function (User $creator) use ($byCreator, $seen) {
+    $mine = $byCreator->get($creator->id, collect());
 
-                $creator->setAttribute('stories_count', $mine->count());
-                $creator->setAttribute('has_stories', $mine->isNotEmpty());
-                $creator->setAttribute('has_unseen', $mine->contains(fn ($s) => !in_array($s->id, $seen)));
-                $creator->setAttribute('latest_story_at', $mine->isNotEmpty() ? $mine->max('created_at') : null);
+    $creator->setAttribute('stories_count', $mine->count());
+    $creator->setAttribute('has_stories', $mine->isNotEmpty());
+    $creator->setAttribute(
+        'has_unseen',
+        $mine->contains(fn ($s) => !in_array($s->id, $seen))
+    );
+    $creator->setAttribute(
+        'latest_story_at',
+        $mine->isNotEmpty() ? $mine->max('created_at') : null
+    );
 
-                return $creator;
-            })
-            ->sortBy(fn (User $c) => [
-                $c->has_unseen ? 0 : ($c->has_stories ? 1 : 2),
-                -($c->latest_story_at ? $c->latest_story_at->timestamp : 0),
-            ])
-            ->values();
+    return $creator;
+});
+
+if ($preserveOrder) {
+    return $rail->values();
+}
+
+return $rail
+    ->sortBy(fn (User $c) => [
+        $c->has_unseen ? 0 : ($c->has_stories ? 1 : 2),
+        -($c->latest_story_at ? $c->latest_story_at->timestamp : 0),
+    ])
+    ->values();
+
     }
 
     protected function normalizeProductIds(array $raw): array

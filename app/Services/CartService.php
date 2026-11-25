@@ -66,29 +66,51 @@ class CartService
     /**
      * @throws \DomainException
      */
-    public function updateQuantity(User $user, int $itemId, int $quantity): Cart
-    {
-        return DB::transaction(function () use ($user, $itemId, $quantity) {
+    
+public function updateQuantity(User $user, int $itemId, int $quantity): Cart
+{
+    return DB::transaction(function () use ($user, $itemId, $quantity) {
+        $cart = $this->getOrCreateCart($user);
 
-            $cart = $this->getOrCreateCart($user);
-            $item = $cart->items()->with('product', 'variant')->findOrFail($itemId);
+        // قفل السلة أثناء التعديل
+        $cart = Cart::whereKey($cart->id)
+            ->lockForUpdate()
+            ->firstOrFail();
 
-            if ($quantity <= 0) {
-                $item->delete();
-            } else {
-                if ($quantity > self::MAX_QUANTITY) {
-                    throw new \DomainException(
-                        __('الحد الأقصى للكمية من المنتج الواحد هو :max', ['max' => self::MAX_QUANTITY])
-                    );
-                }
+        // التأكد أن العنصر تابع لسلة المستخدم مع قفله
+        $item = $cart->items()
+            ->with(['product', 'variant'])
+            ->whereKey($itemId)
+            ->lockForUpdate()
+            ->firstOrFail();
 
-                $this->variants->assertStockAvailable($item->product, $item->variant, $quantity);
-                $item->update(['quantity' => $quantity]);
+        if ($quantity <= 0) {
+            $item->delete();
+        } else {
+            if ($quantity > self::MAX_QUANTITY) {
+                throw new \DomainException(
+                    __('الكمية المطلوبة تتجاوز الحد المسموح')
+                );
             }
 
-            return $cart->load('items.product', 'items.variant');
-        });
-    }
+            $variant = $this->variants->resolveForProduct(
+                $item->product,
+                $item->variant_id ? (int) $item->variant_id : null
+            );
+
+            $this->variants->assertStockAvailable(
+                $item->product,
+                $variant,
+                $quantity
+            );
+
+            // حفظ الكمية الجديدة
+            $item->update(['quantity' => $quantity]);
+        }
+
+        return $cart->load('items.product', 'items.variant');
+    });
+}
 
     public function removeItem(User $user, int $itemId): Cart
     {

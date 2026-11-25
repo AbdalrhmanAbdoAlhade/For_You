@@ -35,7 +35,14 @@ class Order extends Model
         'coupon_id',
         'coupon_code',
          'shipping_method',   // جديد
-    'cod_fee',           // جديد
+    'cod_fee',           
+      'governorate',
+'street_address',
+'building',
+'floor',
+'apartment',
+'latitude',
+'longitude',
     ];
 
     protected $casts = [
@@ -44,6 +51,8 @@ class Order extends Model
         'shipping_cost' => 'decimal:2',
         'total' => 'decimal:2',
       'cod_fee' => 'decimal:2', 
+      'latitude' => 'decimal:7',
+'longitude' => 'decimal:7',
     ];
 
       /** الحالات اللي مبتتحسبش مبيعات */

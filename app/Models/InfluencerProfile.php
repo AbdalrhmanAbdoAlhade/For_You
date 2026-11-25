@@ -12,6 +12,8 @@ class InfluencerProfile extends Model
         'handle',
         'bio',
         'social_links',
+        'cover_image',
+        'instagram_url',
     ];
 
     protected $casts = [

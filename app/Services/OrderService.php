@@ -168,7 +168,14 @@ class OrderService
                 'shipping_address'    => $data['shipping_address'],
                 'city'                => $data['city'] ?? null,
                 'country'             => $data['country'] ?? null,
-                'notes'               => $data['notes'] ?? null,
+                'governorate'          => $data['governorate'] ?? null,
+                'street_address'       => $data['street_address'] ?? null,
+                'building'             => $data['building'] ?? null,
+                'floor'                => $data['floor'] ?? null,
+                'apartment'            => $data['apartment'] ?? null,
+                'latitude'             => $data['latitude'] ?? null,
+                'longitude'            => $data['longitude'] ?? null,
+                'notes'                => $data['notes'] ?? null,
             ]);
 
             // 1) تسجيل الحالة الأولى عند الإنشاء
