@@ -39,6 +39,13 @@ class OrderResource extends JsonResource
             'payment'            => new PaymentResource($this->whenLoaded('payment')),
             'shipping'           => new ShippingResource($this->whenLoaded('shipping')),
             'commissions'        => CommissionResource::collection($this->whenLoaded('commissions')),
+          'governorate'      => $this->governorate,
+'street_address'   => $this->street_address,
+'building'         => $this->building,
+'floor'            => $this->floor,
+'apartment'        => $this->apartment,
+'latitude'         => $this->latitude !== null ? (float) $this->latitude : null,
+'longitude'        => $this->longitude !== null ? (float) $this->longitude : null,
         ];
     }
 }

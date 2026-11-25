@@ -63,8 +63,8 @@ class OrderController extends Controller
     $scope = $data['scope'] ?? 'all';
 
     $query = $request->user()
-        ->ordersAsCustomer()
-        ->with(['items', 'payment', 'shipping']);
+    ->ordersAsCustomer()
+    ->with(['items.product', 'payment', 'shipping']);
 
     // Active = الطلبات في طور التنفيذ
     // History = delivered/cancelled/returned

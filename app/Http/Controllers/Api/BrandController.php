@@ -4,56 +4,56 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BrandResource;
-use App\Http\Resources\ProductResource;
 use App\Models\Brand;
-use App\Services\BrandFollowService;
+use App\Services\PreviewImageService;
 use Illuminate\Http\Request;
 
 class BrandController extends Controller
 {
-    public function __construct(
-        protected BrandFollowService $follows
-    ) {}
-
     public function index(Request $request)
     {
-        $brands = Brand::active()
-            ->withCount(['products' => fn ($q) => $q->active()])
-            ->withCount('followers')
+        $viewer = $request->user();
+        $followed = $viewer ? $viewer->followedBrands()->pluck('brand_id')->toArray() : [];
+
+        $brands = Brand::where('is_active', 1)
             ->orderBy('sort_order')
-            ->orderBy('name')
-            ->paginate(30);
+            ->paginate(20);
 
-        $viewer   = $request->user('sanctum');
-        $ids      = $brands->getCollection()->pluck('id')->all();
-        $followed = $viewer ? $this->follows->followedAmong($viewer, $ids) : [];
+        $brandOfWeek = Brand::where('is_active', 1)
+            ->where('is_brand_of_week', 1)
+            ->first();
 
-        $brands->getCollection()->each(function ($brand) use ($viewer, $followed) {
+        $brands->getCollection()->transform(function ($brand) use ($viewer, $followed) {
+            $brand->preview_images = PreviewImageService::getBrandPreviewImages($brand->id, $brand->logo);
             $brand->is_following = $viewer ? in_array($brand->id, $followed) : null;
+            return $brand;
         });
 
-        return BrandResource::collection($brands);
+        $response = BrandResource::collection($brands);
+
+        if ($brandOfWeek) {
+            $brandOfWeek->preview_images = PreviewImageService::getBrandPreviewImages($brandOfWeek->id, $brandOfWeek->logo);
+            $brandOfWeek->is_following = $viewer ? in_array($brandOfWeek->id, $followed) : null;
+            
+            $response->additional([
+                'brand_of_week' => new BrandResource($brandOfWeek),
+            ]);
+        }
+
+        return $response;
     }
 
-    public function show(Request $request, int $id)
+    public function show($slug)
     {
-        $brand = Brand::active()
-            ->withCount('followers')
-            ->findOrFail($id);
+        // البحث بالـ Slug حصراً لضمان عمل الـ SEO
+        $brand = Brand::where('slug', $slug)->where('is_active', 1)->firstOrFail();
+        
+        $brand->preview_images = PreviewImageService::getBrandPreviewImages($brand->id, $brand->logo);
+        
+        $viewer = request()->user();
+        $followed = $viewer ? $viewer->followedBrands()->pluck('brand_id')->toArray() : [];
+        $brand->is_following = $viewer ? in_array($brand->id, $followed) : null;
 
-        $viewer = $request->user('sanctum');
-        $brand->is_following = $viewer
-            ? $this->follows->isFollowing($viewer, $brand->id)
-            : null;
-
-        $products = $brand->products()
-            ->active()
-            ->with('category')
-            ->latest('products.created_at')
-            ->paginate(15);
-
-        return ProductResource::collection($products)->additional([
-            'brand' => (new BrandResource($brand))->resolve(),
-        ]);
+        return new BrandResource($brand);
     }
 }

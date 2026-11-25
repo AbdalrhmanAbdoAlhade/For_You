@@ -13,6 +13,7 @@ use App\Services\InfluencerStoryService;
 use App\Services\LikeService;
 use Illuminate\Http\Request;
 
+
 class StoryController extends Controller
 {
     public function __construct(
@@ -56,41 +57,30 @@ class StoryController extends Controller
     }
 
     /** GET stories/featured: كارت "Creator edit" في الهوم (من آخر قصة حيّة فيها منتجات متاحة) */
-    public function featured()
-    {
-        $story = InfluencerStory::query()
-            ->visible()
-            ->whereHas('storyProducts', fn ($q) => $q->shoppable())
-            ->with('influencer:id,name,avatar')
-            ->latest()
-            ->first();
+  
+/** GET stories/featured: أفضل مؤثر حسب الطلبات المسلّمة آخر 7 أيام */
+public function featured()
+{
+    $winner = $this->stories->discoverRail(null, 1)->first();
 
-        if (!$story) {
-            return response()->json(['data' => null]);
-        }
-
-        // عدد المنتجات المختلفة المتاحة في كل قصص المؤثر ده الحالية ("12 picks")
-        $picks = InfluencerStoryProduct::query()
-            ->shoppable()
-            ->whereHas('story', fn ($q) => $q->visible()->where('influencer_id', $story->influencer_id))
-            ->distinct()
-            ->count('product_id');
-
-        return response()->json([
-            'data' => [
-                'story_id'    => $story->id,
-                'image'       => $story->image,
-                'label'       => $story->label,
-                'caption'     => $story->caption,
-                'picks_count' => $picks,
-                'influencer'  => [
-                    'id'     => $story->influencer->id,
-                    'name'   => $story->influencer->name,
-                    'avatar' => $story->influencer->avatar,
-                ],
-            ],
-        ]);
+    if (!$winner) {
+        return response()->json(['data' => null]);
     }
+
+    $winner->loadMissing('influencerProfile');
+
+    return response()->json([
+        'data' => [
+            'id'                => (int) $winner->id,
+            'name'              => (string) $winner->name,
+            'avatar'            => $winner->avatar,
+            'cover_image'       => $winner->influencerProfile?->cover_image,
+            'instagram_url'     => $winner->influencerProfile?->instagram_url,
+            'conversions_count' => (int) ($winner->weekly_delivered_orders_count ?? 0),
+        ],
+    ]);
+}
+
 
     /** POST stories/{id}/view (auth): تسجيل مشاهدة (مرة واحدة لكل مستخدم) */
     public function view(Request $request, int $id)

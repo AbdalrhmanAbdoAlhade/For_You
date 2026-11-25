@@ -73,23 +73,41 @@ class CheckoutController extends Controller
         'customer_email'   => 'nullable|email',
         'shipping_address' => 'required_without:address_id|nullable|string',
         'city'             => 'nullable|string|max:100',
-        'country'          => 'nullable|string|max:100',
+       'country'          => 'nullable|string|max:100',
+        'governorate'      => 'nullable|string|max:100',
+        'street_address'   => 'nullable|string|max:500',
+        'building'         => 'nullable|string|max:100',
+        'floor'            => 'nullable|string|max:50',
+        'apartment'        => 'nullable|string|max:50',
+        'latitude'         => 'nullable|required_with:longitude|numeric|between:-90,90',
+        'longitude'        => 'nullable|required_with:latitude|numeric|between:-180,180',
         'notes'            => 'nullable|string',
         'coupon_code'      => 'nullable|string|max:50',
         'ref'              => 'nullable|string|max:32',
+      
         'payment_method'   => 'nullable|string|in:' . implode(',', config('store.payment_methods')),
         'shipping_method'  => 'nullable|string|in:' . implode(',', array_keys(config('store.shipping.methods', []))),
     ]);
 
         if (!empty($data['address_id'])) {
-            $address = $request->user()->addresses()->findOrFail($data['address_id']);
+    $address = $request->user()
+        ->addresses()
+        ->findOrFail($data['address_id']);
 
-            $data['customer_name']    = $address->recipient_name;
-            $data['customer_phone']   = $address->phone;
-            $data['shipping_address'] = $address->address_line;
-            $data['city']             = $address->city;
-            $data['country']          = $address->country;
-        }
+    $data['customer_name']    = $address->recipient_name;
+    $data['customer_phone']   = $address->phone;
+    $data['shipping_address'] = $address->address_line;
+    $data['city']             = $address->city;
+    $data['country']          = $address->country;
+
+    $data['governorate']    = $address->governorate;
+    $data['street_address'] = $address->street_address;
+    $data['building']       = $address->building;
+    $data['floor']          = $address->floor;
+    $data['apartment']      = $address->apartment;
+    $data['latitude']       = $address->latitude;
+    $data['longitude']      = $address->longitude;
+}
 
         // طبقة 1: Idempotency-Key (اختياري هنا، لأن قفل السلة بيحمي حتى من غيره)
         return $this->idempotent($request, 'checkout', function () use ($request, $data) {

@@ -21,7 +21,8 @@ class CategoryResource extends JsonResource
             'parent'         => new CategoryResource($this->whenLoaded('parent')),
             'children'       => CategoryResource::collection($this->whenLoaded('children')),
             'products_count' => $this->whenCounted('products'),
-            'created_at'     => $this->created_at?->toDateTimeString(),
+'brands_count'   => (int) ($this->brands_count ?? 0),
+'created_at'     => $this->created_at?->toDateTimeString(),
         ];
     }
 }

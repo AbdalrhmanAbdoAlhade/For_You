@@ -13,10 +13,26 @@ class OrderItemResource extends JsonResource
             ? $this->product->localized('name')
             : $this->product_name;
 
+$productImage = null;
+
+if ($this->relationLoaded('product') && $this->product) {
+    $images = $this->product->images;
+
+    if (is_array($images) && !empty($images)) {
+        foreach ($images as $image) {
+            if (is_string($image) && trim($image) !== '') {
+                $productImage = $image;
+                break;
+            }
+        }
+    }
+}
+
         return [
             'id'             => $this->id,
             'product_id'     => $this->product_id,
             'variant_id'     => $this->variant_id,
+            'image'          => $productImage, // <-- الحقل الجديد
             'variant'        => [
                 'id'    => $this->variant_id,
                 'size'  => $this->variant_size,

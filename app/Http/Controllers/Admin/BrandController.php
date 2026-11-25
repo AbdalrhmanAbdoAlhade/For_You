@@ -26,6 +26,7 @@ class BrandController extends Controller
         ]);
 
         $brands = Brand::query()
+            ->with('category')                                // ← جديد
             ->withCount('products')
             ->when($request->search, fn ($q) => $q->where('name', 'like', "%{$request->search}%"))
             ->when($request->is_active !== null, fn ($q) => $q->where('is_active', $request->boolean('is_active')))
@@ -39,6 +40,7 @@ class BrandController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
+            'category_id'    => 'nullable|integer|exists:categories,id',  // ← جديد
             'name'           => 'required|string|max:255',
             'name_en'        => 'nullable|string|max:255',
             'description'    => 'nullable|string',
@@ -63,24 +65,24 @@ class BrandController extends Controller
             $brand = Brand::create($data);
         } catch (\Throwable $e) {
             $this->fileUploadService->delete($logo);
-
             throw $e;
         }
 
         AuditLog::record('brand.created', $brand, ['name' => $brand->name]);
         HomeController::flush();
 
-        return (new BrandResource($brand))->response()->setStatusCode(201);
+        return (new BrandResource($brand->load('category')))->response()->setStatusCode(201);
     }
 
     public function show(Brand $brand)
     {
-        return new BrandResource($brand->loadCount('products'));
+        return new BrandResource($brand->load('category')->loadCount('products'));
     }
 
     public function update(Request $request, Brand $brand)
     {
         $data = $request->validate([
+            'category_id'    => 'nullable|integer|exists:categories,id',  // ← جديد
             'name'           => 'sometimes|string|max:255',
             'name_en'        => 'nullable|string|max:255',
             'description'    => 'nullable|string',
@@ -90,7 +92,6 @@ class BrandController extends Controller
             'is_active'      => 'boolean',
         ]);
 
-        // الـ slug بيفضل ثابت لو الاسم اتغيّر
         $oldLogo = $brand->logo;
         $newLogo = null;
 
@@ -105,7 +106,6 @@ class BrandController extends Controller
             $brand->update($data);
         } catch (\Throwable $e) {
             $this->fileUploadService->delete($newLogo);
-
             throw $e;
         }
 
@@ -116,7 +116,7 @@ class BrandController extends Controller
         AuditLog::record('brand.updated', $brand, ['name' => $brand->name]);
         HomeController::flush();
 
-        return new BrandResource($brand->fresh());
+        return new BrandResource($brand->fresh()->load('category'));
     }
 
     public function destroy(Brand $brand)
@@ -135,7 +135,6 @@ class BrandController extends Controller
         return response()->json(['message' => 'تم حذف البراند بنجاح']);
     }
 
-    /** slug فريد مع تجاهل السجلات المحذوفة soft-delete */
     protected function uniqueSlug(string $name): string
     {
         $base = Str::slug($name);

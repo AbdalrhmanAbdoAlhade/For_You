@@ -28,11 +28,11 @@ class ProductResource extends JsonResource
             'sku'               => $this->when($isStaff, $this->sku),
             'rating_avg'        => (float) $this->rating_avg,
             'reviews_count'     => (int) $this->reviews_count,
-            'has_variants'      => (bool) (
-                $this->relationLoaded('variants')
-                    ? $this->variants->isNotEmpty()
-                    : ($this->variants_count ?? 0) > 0
-            ),
+            'has_variants' => (bool) (
+    $this->variants_count !== null
+        ? $this->variants_count > 0
+        : $this->variants()->exists()
+),
             'variants'          => ProductVariantResource::collection($this->whenLoaded('variants')),
             'in_stock'          => $this->when(!$isStaff, $this->stock > 0),
             'images'            => $this->images ?? [],
@@ -41,10 +41,28 @@ class ProductResource extends JsonResource
             'category'          => new CategoryResource($this->whenLoaded('category')),
             'brand'             => $showBrand ? new BrandResource($brand) : null,
             'likes_count'       => $this->whenCounted('likers'),
-            'influencers'       => $this->when(
-                $isStaff && $this->relationLoaded('influencers'),
-                UserResource::collection($this->whenLoaded('influencers'))
-            ),
+            'influencers' => $this->when(
+    true, // دائمًا موجود في الـ JSON
+    function () use ($isStaff) {
+        // لو العلاقة مش محمّلة → رجّع []
+        if (!$this->relationLoaded('styledBy')) {
+            return [];
+        }
+
+        $collection = $this->styledBy;
+
+        // موظف / عنده صلاحية → UserResource كامل
+        if ($isStaff) {
+            return UserResource::collection($collection);
+        }
+
+        // يوزر عادي → name + image فقط
+        return $collection->map(fn ($u) => [
+            'name'  => $u->name,
+            'image' => $u->avatar, // الـ avatar أصلًا URL كامل
+        ])->values()->all();
+    }
+),
             'created_at'        => $this->created_at?->toDateTimeString(),
         ];
     }

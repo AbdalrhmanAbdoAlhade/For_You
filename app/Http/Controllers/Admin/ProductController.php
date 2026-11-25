@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
@@ -224,15 +225,65 @@ class ProductController extends Controller
         return new ProductResource($product);
     }
 
-    public function destroy(Product $product)
-    {
+   
+public function destroy(Product $product)
+{
+    $result = DB::transaction(function () use ($product) {
+        // قفل المنتج لتجنب تعارض الحذف مع عملية إنشاء طلب
+        $product = Product::whereKey($product->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $productName = $product->name;
+
+        // لو المنتج مرتبط بطلبات سابقة، نعطّله فقط
+        if ($product->orderItems()->exists()) {
+            $product->update([
+                'is_active' => false,
+            ]);
+
+            AuditLog::record(
+                'product.deactivated',
+                $product,
+                [
+                    'name' => $productName,
+                    'reason' => 'has_previous_orders',
+                ]
+            );
+
+            return [
+                'action' => 'deactivated',
+            ];
+        }
+
+        // لو مفيش طلبات سابقة، نعمل Soft Delete
         $product->delete();
 
-        AuditLog::record('product.deleted', $product, ['name' => $product->name]);
-        HomeController::flush();
+        AuditLog::record(
+            'product.deleted',
+            $product,
+            ['name' => $productName]
+        );
 
-        return response()->json(['message' => 'تم حذف المنتج بنجاح']);
+        return [
+            'action' => 'deleted',
+        ];
+    });
+
+    HomeController::flush();
+
+    if ($result['action'] === 'deactivated') {
+        return response()->json([
+            'message' => 'المنتج مرتبط بطلبات سابقة، لذلك تم تعطيله بدلًا من حذفه.',
+            'action' => 'deactivated',
+        ]);
     }
+
+    return response()->json([
+        'message' => 'تم حذف المنتج بنجاح.',
+        'action' => 'deleted',
+    ]);
+}
 
     /**
      * slug فريد مع تجاهل السجلات المحذوفة soft-delete.

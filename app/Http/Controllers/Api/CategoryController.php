@@ -12,27 +12,48 @@ use App\Http\Resources\BrandResource;
 class CategoryController extends Controller
 {
   
-  
-    public function index(Request $request)
-    {
-        $categories = Category::active()
-            ->with(['children' => fn($q) => $q->active()])
-            ->when($request->parent_id, fn($q) => $q->where('parent_id', $request->parent_id))
-            ->when($request->search, fn($q) => $q->where('name', 'like', "%{$request->search}%"))
-            ->orderBy('sort_order')
-            ->get();
+  /** Subquery: عدد البراندات النشطة الفريدة المرتبطة بالتصنيف عبر منتجات نشطة */
+protected function brandsCountSubquery()
+{
+    return Brand::query()
+        ->selectRaw('COUNT(DISTINCT brands.id)')
+        ->join('products', 'products.brand_id', '=', 'brands.id')
+        ->whereColumn('products.category_id', 'categories.id')
+        ->where('brands.is_active', true)
+        ->where('products.is_active', true)
+        ->whereNull('products.deleted_at');
+}
 
-        return CategoryResource::collection($categories);
-    }
+public function index(Request $request)
+{
+    $categories = Category::active()
+        ->addSelect(['brands_count' => $this->brandsCountSubquery()])
+        ->with(['children' => fn($q) => $q
+            ->active()
+            ->addSelect(['brands_count' => $this->brandsCountSubquery()])
+        ])
+        ->when($request->parent_id, fn($q) => $q->where('parent_id', $request->parent_id))
+        ->when($request->search, fn($q) => $q->where('name', 'like', "%{$request->search}%"))
+        ->orderBy('sort_order')
+        ->get();
 
-    public function show($id)
-    {
-        $category = Category::active()
-            ->with(['children', 'products' => fn($q) => $q->active()])
-            ->findOrFail($id);
+    return CategoryResource::collection($categories);
+}
 
-        return new CategoryResource($category);
-    }
+public function show($id)
+{
+    $category = Category::active()
+        ->addSelect(['brands_count' => $this->brandsCountSubquery()])
+        ->with([
+            'children' => fn($q) => $q
+                ->active()
+                ->addSelect(['brands_count' => $this->brandsCountSubquery()]),
+            'products' => fn($q) => $q->active(),
+        ])
+        ->findOrFail($id);
+
+    return new CategoryResource($category);
+}
   
   /** GET /api/categories/{id}/brands */
     public function brands($id)

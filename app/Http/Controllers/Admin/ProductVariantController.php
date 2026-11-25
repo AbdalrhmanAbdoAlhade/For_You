@@ -25,81 +25,148 @@ class ProductVariantController extends Controller
         ]);
     }
 
-    public function store(Request $request, Product $product): JsonResponse
-    {
-        $data = $this->validateVariant($request, $product);
+   
+public function store(Request $request, Product $product): JsonResponse
+{
+    $data = $this->validateVariant($request, $product);
 
-        try {
-            $variant = $product->variants()->create($data);
-        } catch (UniqueConstraintViolationException $e) {
-            throw ValidationException::withMessages([
-                'size' => __('نفس تركيبة المقاس/اللون موجودة بالفعل'),
-            ]);
-        }
+    try {
+        $variant = \DB::transaction(function () use ($product, $data) {
+            // قفل المنتج أولاً بنفس ترتيب إنشاء الطلب
+            $lockedProduct = Product::whereKey($product->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $this->variants->syncProductStock($product);
+            // إنشاء الـ Variant داخل نفس الـ Transaction
+            $variant = $lockedProduct->variants()->create($data);
 
-        return response()->json(['data' => $variant->fresh()], 201);
+            // مزامنة المخزون قبل إنهاء الـ Transaction
+            $this->variants->syncProductStock($lockedProduct);
+
+            return $variant;
+        });
+    } catch (UniqueConstraintViolationException $e) {
+        throw ValidationException::withMessages([
+            'size' => __('نفس تركيبة المقاس/اللون موجودة بالفعل'),
+        ]);
     }
 
-    public function update(Request $request, Product $product, ProductVariant $variant): JsonResponse
-    {
-        if ($variant->product_id !== $product->id) {
-            abort(404);
-        }
+    return response()->json([
+        'data' => $variant->fresh(),
+    ], 201);
+}
 
-        $data = $this->validateVariant($request, $product, $variant->id);
 
-        try {
-            $variant->update($data);
-        } catch (UniqueConstraintViolationException $e) {
-            throw ValidationException::withMessages([
-                'size' => __('نفس تركيبة المقاس/اللون موجودة بالفعل'),
-            ]);
-        }
-
-        $this->variants->syncProductStock($product);
-
-        return response()->json(['data' => $variant->fresh()]);
+   
+public function update(
+    Request $request,
+    Product $product,
+    ProductVariant $variant
+): JsonResponse {
+    if ($variant->product_id !== $product->id) {
+        abort(404);
     }
 
-   public function destroy(Product $product, ProductVariant $variant): JsonResponse
+    $data = $this->validateVariant($request, $product, $variant->id);
+
+    try {
+        $updatedVariant = \DB::transaction(function () use (
+            $product,
+            $variant,
+            $data
+        ) {
+            // قفل المنتج أولاً
+            $lockedProduct = Product::whereKey($product->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // قفل الـ Variant والتأكد من تبعيته للمنتج
+            $lockedVariant = ProductVariant::whereKey($variant->id)
+                ->where('product_id', $lockedProduct->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // تحديث البيانات
+            $lockedVariant->update($data);
+
+            // مزامنة المخزون داخل نفس الـ Transaction
+            $this->variants->syncProductStock($lockedProduct);
+
+            return $lockedVariant;
+        });
+    } catch (UniqueConstraintViolationException $e) {
+        throw ValidationException::withMessages([
+            'size' => __('نفس تركيبة المقاس/اللون موجودة بالفعل'),
+        ]);
+    }
+
+    return response()->json([
+        'data' => $updatedVariant->fresh(),
+    ]);
+}
+
+
+   
+public function destroy(Product $product, ProductVariant $variant): JsonResponse
 {
     if ($variant->product_id !== $product->id) {
         abort(404);
     }
 
-    // Block deletion if variant was used in any historical order (preserve snapshots + FK integrity)
-    if ($variant->orderItems()->exists()) {
-        return response()->json([
-            'message' => 'الـ variant مستخدم في أوردرات سابقة، عطّله بدل الحذف',
-        ], 422);
-    }
-
     $deletedCartItemsCount = 0;
 
     try {
-        \DB::transaction(function () use ($product, $variant, &$deletedCartItemsCount) {
-            // Delete dependent cart items FIRST to prevent orphans
-            // (otherwise variant_id becomes NULL via nullOnDelete, leaving broken cart entries)
-            $deletedCartItemsCount = $variant->cartItems()->delete();
+        $result = \DB::transaction(function () use (
+            $product,
+            $variant,
+            &$deletedCartItemsCount
+        ) {
+            // نفس ترتيب الأقفال المستخدم في إنشاء الطلب:
+            // Product أولاً ثم Variant
+            $lockedProduct = Product::whereKey($product->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            $variant->delete();
+            $lockedVariant = ProductVariant::whereKey($variant->id)
+                ->where('product_id', $lockedProduct->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            $this->variants->syncProductStock($product);
+            // الفحص داخل الـ Transaction وبعد الحصول على الأقفال
+            if ($lockedVariant->orderItems()->exists()) {
+                return false;
+            }
+
+            // حذف عناصر السلة التابعة للـ Variant
+            $deletedCartItemsCount = $lockedVariant->cartItems()->delete();
+
+            // حذف الـ Variant ومزامنة مخزون المنتج
+            $lockedVariant->delete();
+
+            $this->variants->syncProductStock($lockedProduct);
+
+            return true;
         });
     } catch (\Throwable $e) {
         report($e);
+
         return response()->json([
             'message' => 'تعذر حذف الـ variant، حاول مرة أخرى',
         ], 500);
     }
 
+    if (!$result) {
+        return response()->json([
+            'message' => 'الـ variant مستخدم في أوردرات سابقة، عطّله بدل الحذف',
+        ], 422);
+    }
+
     return response()->json([
-        'message'             => 'تم حذف الـ variant',
-        'deleted_cart_items'  => $deletedCartItemsCount,
+        'message' => 'تم حذف الـ variant',
+        'deleted_cart_items' => $deletedCartItemsCount,
     ]);
 }
+
     /** تحويل منتج simple لـ variants — لازم مجموع الـ stock يتطابق */
     public function convert(Request $request, Product $product): JsonResponse
     {

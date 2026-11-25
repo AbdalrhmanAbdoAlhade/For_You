@@ -33,7 +33,7 @@ class InfluencerController extends Controller
     $since30d = now()->subDays(30);
 
     $influencers = User::influencers()
-        ->with('wallet')
+        ->with(['wallet', 'influencerProfile'])
         ->addSelect([
             'sales_links_30d_orders' => Order::selectRaw('COUNT(*)')
                 ->whereColumn('influencer_id', 'users.id')
@@ -82,9 +82,14 @@ class InfluencerController extends Controller
         $inf->setAttribute('wallet_balance_owed', (float) ($inf->wallet?->balance ?? 0));
         $inf->setAttribute('avg_commission_rate', round((float) ($inf->avg_commission_rate ?? 0), 2));
 
+        // الحقول الجديدة — من البروفايل المحمّل مسبقًا (لا N+1)
+        $inf->setAttribute('cover_image', $inf->influencerProfile?->cover_image);
+        $inf->setAttribute('instagram_url', $inf->influencerProfile?->instagram_url);
+
         $inf->makeHidden([
             'sales_links_30d_orders', 'sales_links_30d_revenue',
             'commission_earned_total', 'commission_pending_total',
+            'influencerProfile',
         ]);
 
         return $inf;
@@ -134,18 +139,30 @@ protected function stats($since30d): array
         'avg_commission_rate' => round($avgRate, 2),
     ];
 }
+
     public function store(Request $request)
 {
     $data = $request->validate([
-        'name'      => 'required|string|max:255',
-        'email'     => 'required|email|unique:users,email',
-        'phone'     => 'nullable|string|unique:users,phone',
-        'password'  => 'required|string|min:8',
-        'is_active' => 'boolean',
-        'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+        'name'          => 'required|string|max:255',
+        'email'         => 'required|email|unique:users,email',
+        'phone'         => 'nullable|string|unique:users,phone',
+        'password'      => 'required|string|min:8',
+        'is_active'     => 'boolean',
+        'avatar'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+        'cover_image'   => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=4000,max_height=4000',
+        'instagram_url' => 'nullable|url|max:500',
     ]);
 
+    // نستخرج حقول البروفايل من بيانات الفاليديشن (لا تخص users table)
+    $profileData = [];
+    if (array_key_exists('instagram_url', $data)) {
+        $profileData['instagram_url'] = $data['instagram_url'];
+        unset($data['instagram_url']);
+    }
+    unset($data['cover_image']); // يُعالج من خلال الملف
+
     $avatar = null;
+    $cover  = null;
 
     try {
         if ($request->hasFile('avatar')) {
@@ -155,30 +172,58 @@ protected function stats($since30d): array
             unset($data['avatar']);
         }
 
-        $influencer = User::create([
-            ...$data,
-            'password' => Hash::make($data['password']),
-            'type'     => 'influencer',
-        ]);
+        if ($request->hasFile('cover_image')) {
+            $cover = $this->fileUploadService->upload($request->file('cover_image'), 'influencer-covers');
+            $profileData['cover_image'] = $cover;
+        }
+
+        $influencer = DB::transaction(function () use ($data, $profileData) {
+            $inf = User::create([
+                ...$data,
+                'password' => Hash::make($data['password']),
+                'type'     => 'influencer',
+            ]);
+
+            if (!empty($profileData)) {
+                $inf->influencerProfile()->create($profileData);
+            }
+
+            return $inf;
+        });
     } catch (\Throwable $e) {
+        // rollback للملفات الجديدة فقط
         $this->fileUploadService->delete($avatar);
+        $this->fileUploadService->delete($cover);
 
         throw $e;
     }
 
-    // إنشاء محفظة تلقائيًا
+    // إنشاء محفظة تلقائيًا (سلوك سابق، خارج الـ transaction)
     $this->walletService->getOrCreateWallet($influencer->id);
 
     AuditLog::record('influencer.created', $influencer, ['email' => $influencer->email]);
 
-    return response()->json($influencer, 201);
+    $influencer->load('influencerProfile');
+
+    $payload = $influencer->toArray();
+    unset($payload['influencer_profile'], $payload['influencerProfile']);
+    $payload['cover_image']   = $influencer->influencerProfile?->cover_image;
+    $payload['instagram_url'] = $influencer->influencerProfile?->instagram_url;
+
+    return response()->json($payload, 201);
 }
 
 public function show(User $influencer)
 {
     abort_if($influencer->type !== 'influencer', 404);
 
-    $influencer->load(['wallet', 'influencerProducts', 'promotionalLinks', 'commissions']);
+    $influencer->load([
+        'wallet',
+        'influencerProfile',
+        'influencerProducts',
+        'promotionalLinks',
+        'commissions',
+    ]);
 
     // مبيعات الطلبات عبر روابط المؤثر (كل الفترة)
     $allTime = Order::where('influencer_id', $influencer->id)
@@ -194,6 +239,7 @@ public function show(User $influencer)
         ->first();
 
     $payload = $influencer->toArray();
+    unset($payload['influencer_profile'], $payload['influencerProfile']);
 
     $payload['sales_through_links'] = [
         'orders_count' => (int) ($allTime->orders_count ?? 0),
@@ -205,6 +251,9 @@ public function show(User $influencer)
         'revenue'      => round((float) ($last30->revenue ?? 0), 2),
     ];
 
+    $payload['cover_image']   = $influencer->influencerProfile?->cover_image;
+    $payload['instagram_url'] = $influencer->influencerProfile?->instagram_url;
+
     return response()->json($payload);
 }
 
@@ -213,12 +262,14 @@ public function show(User $influencer)
     abort_if($influencer->type !== 'influencer', 404);
 
     $data = $request->validate([
-        'name'      => 'sometimes|string|max:255',
-        'email'     => 'sometimes|email|unique:users,email,' . $influencer->id,
-        'phone'     => 'nullable|string|unique:users,phone,' . $influencer->id,
-        'password'  => 'nullable|string|min:8',
-        'is_active' => 'boolean',
-        'avatar'    => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+        'name'          => 'sometimes|string|max:255',
+        'email'         => 'sometimes|email|unique:users,email,' . $influencer->id,
+        'phone'         => 'nullable|string|unique:users,phone,' . $influencer->id,
+        'password'      => 'nullable|string|min:8',
+        'is_active'     => 'boolean',
+        'avatar'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+        'cover_image'   => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=4000,max_height=4000',
+        'instagram_url' => 'nullable|url|max:500',
     ]);
 
     if (!empty($data['password'])) {
@@ -227,8 +278,22 @@ public function show(User $influencer)
         unset($data['password']);
     }
 
+    // استخراج حقول البروفايل
+    $profileData = [];
+    if (array_key_exists('instagram_url', $data)) {
+        $profileData['instagram_url'] = $data['instagram_url'];
+        unset($data['instagram_url']);
+    }
+    unset($data['cover_image']);
+
+    // نحمّل البروفايل الحالي مسبقًا (نحتاجه للقيم القديمة للحذف بعد النجاح)
+    $influencer->loadMissing('influencerProfile');
+
     $oldAvatar = $influencer->avatar;
+    $oldCover  = $influencer->influencerProfile?->cover_image;
+
     $newAvatar = null;
+    $newCover  = null;
 
     if ($request->hasFile('avatar')) {
         $newAvatar = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
@@ -237,16 +302,42 @@ public function show(User $influencer)
         unset($data['avatar']);
     }
 
+    if ($request->hasFile('cover_image')) {
+        $newCover = $this->fileUploadService->upload($request->file('cover_image'), 'influencer-covers');
+        $profileData['cover_image'] = $newCover;
+    }
+
     try {
-        $influencer->update($data);
+        DB::transaction(function () use ($influencer, $data, $profileData) {
+            if (!empty($data)) {
+                $influencer->update($data);
+            }
+
+            if (!empty($profileData)) {
+                $influencer->influencerProfile()->updateOrCreate(
+                    ['user_id' => $influencer->id],
+                    $profileData
+                );
+            }
+        });
     } catch (\Throwable $e) {
-        $this->fileUploadService->delete($newAvatar);
+        // rollback للملفات الجديدة فقط
+        if ($newAvatar) {
+            $this->fileUploadService->delete($newAvatar);
+        }
+        if ($newCover) {
+            $this->fileUploadService->delete($newCover);
+        }
 
         throw $e;
     }
 
+    // بعد نجاح الحفظ: نحذف الملفات القديمة فقط
     if ($newAvatar) {
         $this->fileUploadService->delete($oldAvatar);
+    }
+    if ($newCover && $oldCover && $oldCover !== $newCover) {
+        $this->fileUploadService->delete($oldCover);
     }
 
     AuditLog::record('influencer.updated', $influencer, [
@@ -257,7 +348,13 @@ public function show(User $influencer)
     // تفعيل/تعطيل المؤثر بيغيّر influencer_picks في الرئيسية
     HomeController::flush();
 
-    return response()->json($influencer->fresh());
+    $influencer = $influencer->fresh(['influencerProfile']);
+    $payload = $influencer->toArray();
+    unset($payload['influencer_profile'], $payload['influencerProfile']);
+    $payload['cover_image']   = $influencer->influencerProfile?->cover_image;
+    $payload['instagram_url'] = $influencer->influencerProfile?->instagram_url;
+
+    return response()->json($payload);
 }
 
     public function attachProducts(Request $request, User $influencer)
@@ -279,11 +376,9 @@ public function show(User $influencer)
                 $pivot['commission_percentage'] = $item['commission_percentage'];
             }
 
-            // is_active صريح فقط؛ لو مش مبعوت ما نلمسش القيمة القديمة
             if (array_key_exists('is_active', $item)) {
                 $pivot['is_active'] = (bool) $item['is_active'];
             } else {
-                // منتج جديد فقط → نشط افتراضيًا
                 $already = $influencer->influencerProducts()
                     ->where('products.id', $item['product_id'])
                     ->exists();
@@ -301,7 +396,6 @@ public function show(User $influencer)
             'product_ids' => array_keys($attach),
         ]);
 
-        // ربط/تفعيل منتجات المؤثر بيغيّر influencer_picks مباشرةً
         HomeController::flush();
 
         return response()->json([
@@ -314,7 +408,6 @@ public function show(User $influencer)
     {
         abort_if($influencer->type !== 'influencer', 404);
 
-        // منع الحذف لو فيه رصيد أو سحوبات/عمولات معلّقة
         $wallet = $influencer->wallet;
 
         if ($wallet && (round((float) $wallet->balance, 2) !== 0.0 || (float) $wallet->total_earned > 0)) {
@@ -363,7 +456,6 @@ public function show(User $influencer)
 
         $productId = $request->product_id;
 
-        // الرابط الخاص بمنتج لازم يكون المنتج مربوط بالمؤثر ونشط
         if ($productId !== null) {
             $attached = $influencer->influencerProducts()
                 ->where('products.id', $productId)

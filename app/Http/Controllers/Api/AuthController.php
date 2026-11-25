@@ -125,67 +125,164 @@ public function me(Request $request)
     /**
      * تعديل البيانات. لو فيه avatar ابعت POST مع _method=PUT (multipart).
      */
-    public function updateProfile(Request $request)
-    {
-        $user = $request->user();
+public function updateProfile(Request $request)
+{
+    $user = $request->user();
+    $isInfluencer = $user->type === 'influencer';
 
-        $data = $request->validate([
-            'name'             => 'sometimes|string|max:255',
-            'email'            => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'phone'            => ['nullable', 'string', 'max:30', Rule::unique('users', 'phone')->ignore($user->id)],
-            'avatar'           => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048|dimensions:max_width=2000,max_height=2000',
-            'current_password' => 'nullable|string',
-        ]);
+    // ==================================================================
+    // 1) منع غير المؤثرين من إرسال الحقول المخصصة للمؤثرين (422 صريح)
+    // ==================================================================
+    if (!$isInfluencer) {
+        $errors = [];
+        if ($request->hasFile('cover_image') || $request->exists('cover_image')) {
+            $errors['cover_image'] = ['هذا الحقل متاح للمؤثرين فقط'];
+        }
+        if ($request->exists('instagram_url')) {
+            $errors['instagram_url'] = ['هذا الحقل متاح للمؤثرين فقط'];
+        }
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
 
-        $emailChanged = isset($data['email']) && $data['email'] !== $user->email;
+    // ==================================================================
+    // 2) قواعد التحقق — تُضاف حقول المؤثر فقط إن كان المستخدم مؤثرًا
+    // ==================================================================
+    $rules = [
+        'name'             => 'sometimes|string|max:255',
+        'email'            => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+        'phone'            => ['nullable', 'string', 'max:30', Rule::unique('users', 'phone')->ignore($user->id)],
+        'avatar'           => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048|dimensions:max_width=2000,max_height=2000',
+        'current_password' => 'nullable|string',
+    ];
 
-        // الإيميل لحسابات العملاء بس (المؤثر والموظف بيتعدل من الإدارة)
-        if ($emailChanged) {
-            if ($user->type !== 'customer') {
-                return response()->json(['message' => 'لتغيير البريد الإلكتروني تواصل مع الإدارة'], 403);
-            }
+    if ($isInfluencer) {
+        $rules['cover_image']   = 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=4000,max_height=4000';
+        $rules['instagram_url'] = 'nullable|url|max:500';
+    }
 
-            /*
-             * حساب social من غير باسورد: تغيير الإيميل بتوكن واحد خطر
-             * (توكن مسروق يغيّر الإيميل ويستولي على الحساب). نطلب تعيين
-             * كلمة مرور أولاً، وبعدها التغيير يحتاج الباسورد الحالي.
-             */
-            if (!$user->password) {
-                return response()->json([
-                    'message' => 'عيّن كلمة مرور للحساب أولاً قبل تغيير البريد الإلكتروني',
-                ], 403);
-            }
+    $data = $request->validate($rules);
 
-            if (empty($data['current_password']) || !Hash::check($data['current_password'], $user->password)) {
-                throw ValidationException::withMessages([
-                    'current_password' => ['كلمة المرور الحالية مطلوبة وصحيحة لتغيير البريد'],
-                ]);
-            }
+    // ==================================================================
+    // 3) تغيير البريد — سياسة محفوظة بدون تغيير
+    // ==================================================================
+    $emailChanged = isset($data['email']) && $data['email'] !== $user->email;
+
+    if ($emailChanged) {
+        if ($user->type !== 'customer') {
+            return response()->json(['message' => 'لتغيير البريد الإلكتروني تواصل مع الإدارة'], 403);
+        }
+        if (!$user->password) {
+            return response()->json([
+                'message' => 'عيّن كلمة مرور للحساب أولاً قبل تغيير البريد الإلكتروني',
+            ], 403);
+        }
+        if (empty($data['current_password']) || !Hash::check($data['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['كلمة المرور الحالية مطلوبة وصحيحة لتغيير البريد'],
+            ]);
+        }
+    }
+
+    unset($data['current_password']);
+
+    // ==================================================================
+    // 4) حقول البروفايل — instagram_url: null يمسح / عدم الإرسال يحفظ
+    // ==================================================================
+    $profileData = [];
+    $oldCover = null;
+
+    if ($isInfluencer) {
+        $user->loadMissing('influencerProfile');
+        $oldCover = $user->influencerProfile?->cover_image;
+
+        if ($request->exists('instagram_url')) {
+            $profileData['instagram_url'] = $data['instagram_url'] ?? null;
+        }
+    }
+
+    // لا نمرر حقول البروفايل إلى users.fill()
+    unset($data['instagram_url'], $data['cover_image']);
+
+    // ==================================================================
+    // 5) الرفع الآمن — نرفع الجديد أولاً، لا نحذف القديم قبل النجاح
+    // ==================================================================
+    $oldAvatar = $user->avatar;
+    $newAvatar = null;
+    $newCover  = null;
+
+    try {
+        // رفع الغلاف (للمؤثر فقط)
+        if ($isInfluencer && $request->hasFile('cover_image')) {
+            $newCover = $this->fileUploadService->upload($request->file('cover_image'), 'influencer-covers');
+            $profileData['cover_image'] = $newCover;
         }
 
-        unset($data['current_password']);
-
+        // رفع الأفاتار — آمن مثل cover (لا نحذف القديم الآن)
         if ($request->hasFile('avatar')) {
-            // صورة الـ social (رابط خارجي) متتمسحش
-            if ($user->avatar && !str_starts_with($user->avatar, 'http')) {
-                $this->fileUploadService->delete($user->avatar);
-            }
-            $data['avatar'] = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
+            $newAvatar = $this->fileUploadService->upload($request->file('avatar'), 'avatars');
+            $data['avatar'] = $newAvatar;
         } else {
             unset($data['avatar']);
         }
 
-        $user->fill($data);
+        // حفظ كل شيء في transaction
+        DB::transaction(function () use ($user, $data, $emailChanged, $profileData) {
+            $user->fill($data);
 
-        // الإيميل الجديد لازم يتأكد من جديد.
-        if ($emailChanged) {
-            $user->email_verified_at = null;
+            if ($emailChanged) {
+                $user->email_verified_at = null;
+            }
+
+            $user->save();
+
+            if (!empty($profileData)) {
+                $user->influencerProfile()->updateOrCreate(
+                    ['user_id' => $user->id],
+                    $profileData
+                );
+            }
+        });
+    } catch (\Throwable $e) {
+        // فشل: نحذف الجديد فقط، لا نلمس القديم
+        if ($newAvatar) {
+            $this->fileUploadService->delete($newAvatar);
         }
-
-        $user->save();
-
-        return response()->json($user->fresh());
+        if ($newCover) {
+            $this->fileUploadService->delete($newCover);
+        }
+        throw $e;
     }
+
+    // ==================================================================
+    // 6) نجاح: نحذف القديم فقط بعد نجاح الحفظ
+    // ==================================================================
+    if ($newAvatar && $oldAvatar && $oldAvatar !== $newAvatar && !str_starts_with($oldAvatar, 'http')) {
+        $this->fileUploadService->delete($oldAvatar);
+    }
+    if ($newCover && $oldCover && $oldCover !== $newCover) {
+        $this->fileUploadService->delete($oldCover);
+    }
+
+    // ==================================================================
+    // 7) الاستجابة
+    // ==================================================================
+    $user->refresh();
+    $payload = $user->toArray();
+
+    if ($isInfluencer) {
+        $user->loadMissing('influencerProfile');
+        $payload['cover_image']   = $user->influencerProfile?->cover_image;
+        $payload['instagram_url'] = $user->influencerProfile?->instagram_url;
+        unset($payload['influencer_profile'], $payload['influencerProfile']);
+    } else {
+        $payload['cover_image']   = null;
+        $payload['instagram_url'] = null;
+    }
+
+    return response()->json($payload);
+}
 
     public function changePassword(Request $request)
     {
@@ -262,7 +359,7 @@ public function me(Request $request)
 
         return response()->json(['message' => 'تم تغيير كلمة المرور، سجّل الدخول بالباسورد الجديد']);
     }
-  /** POST /api/auth/forgot-password-otp */
+ 
 /** POST /api/auth/forgot-password-otp */
 public function forgotPasswordOtp(Request $request)
 {

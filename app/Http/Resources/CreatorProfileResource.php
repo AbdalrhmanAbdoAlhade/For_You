@@ -22,6 +22,8 @@ class CreatorProfileResource extends JsonResource
             'handle'      => $profile?->handle,
             'bio'         => $profile?->bio,
             'social_links'=> $profile?->social_links ?? [],
+            'cover_image'   => $profile?->cover_image,
+            'instagram_url' => $profile?->instagram_url,
             'is_verified' => (bool) $this->is_verified,
 
             'stats' => [

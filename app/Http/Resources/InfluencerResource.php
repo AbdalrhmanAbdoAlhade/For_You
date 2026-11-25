@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\ProductResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -10,18 +11,17 @@ class InfluencerResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'         => $this->id,
-            'name'       => $this->name,
-            'email'      => $this->email,
-            'phone'      => $this->phone,
-            'is_active'  => $this->is_active,
-            'avatar'     => $this->avatar,
-            'created_at' => $this->created_at?->toDateTimeString(),
-
-            'wallet'             => new WalletResource($this->whenLoaded('wallet')),
-            'products'           => ProductResource::collection($this->whenLoaded('influencerProducts')),
-            'promotional_links'  => PromotionalLinkResource::collection($this->whenLoaded('promotionalLinks')),
-            'commissions'        => CommissionResource::collection($this->whenLoaded('commissions')),
+            'id'             => $this->id,
+            'name'           => $this->name,
+            'slug'           => $this->slug ?? null,
+            'avatar'         => $this->avatar ?? null,
+            'type'           => $this->type,
+            'is_active'      => (bool) $this->is_active,
+            'preview_images' => $this->preview_images ?? [],
+            'picks' => ProductResource::collection(
+                $this->whenLoaded('influencerProducts')
+            ),
+            // يمكن إضافة أي حقول أخرى كانت موجودة مسبقاً هنا
         ];
     }
 }
